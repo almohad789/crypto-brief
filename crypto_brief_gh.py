@@ -62,8 +62,17 @@ def fmt(v):
 # ─────────────────────────────────────────────────────────────
 # RÉCUPÉRATION DES DONNÉES
 # ─────────────────────────────────────────────────────────────
-def fetch_json(url, params=None):
-    r = requests.get(url, params=params, timeout=30)
+def fetch_json(url, params=None, retries=4):
+    """GET avec réessais automatiques si limite de débit (429)."""
+    for attempt in range(retries):
+        r = requests.get(url, params=params, timeout=30)
+        if r.status_code == 429:
+            wait = 20 * (attempt + 1)   # 20s, 40s, 60s...
+            print(f"[info] limite API atteinte, on attend {wait}s...")
+            time.sleep(wait)
+            continue
+        r.raise_for_status()
+        return r.json()
     r.raise_for_status()
     return r.json()
  
@@ -108,7 +117,7 @@ def fetch_all():
                     eur[cid] = prices[-1][1]
         except Exception as e:
             print(f"[warn] courbe {sym} ({cid}) : {e}")
-        time.sleep(1.2)  # évite la limite de débit CoinGecko
+        time.sleep(8)  # pause généreuse pour rester sous la limite CoinGecko
  
     return curves, eur, usd, logos_url
  
@@ -290,4 +299,4 @@ def main():
  
 if __name__ == "__main__":
     main()
-    
+ 
