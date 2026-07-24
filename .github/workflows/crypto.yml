@@ -1,0 +1,29 @@
+name: Brief crypto Discord
+
+on:
+  schedule:
+    # GitHub tourne en UTC. On couvre l'heure d'hiver (UTC+1) ET d'été (UTC+2).
+    # Le script ne poste que si l'heure de Paris est réellement 6h ou 20h.
+    - cron: "0 4 * * *"    # 6h Paris en été
+    - cron: "0 5 * * *"    # 6h Paris en hiver
+    - cron: "0 18 * * *"   # 20h Paris en été
+    - cron: "0 19 * * *"   # 20h Paris en hiver
+  workflow_dispatch:        # permet aussi de lancer à la main depuis GitHub
+
+jobs:
+  brief:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Installer les dépendances
+        run: pip install requests matplotlib
+
+      - name: Envoyer le brief
+        env:
+          DISCORD_WEBHOOK: ${{ secrets.DISCORD_WEBHOOK }}
+        run: python crypto_brief_gh.py
