@@ -26,4 +26,7 @@ jobs:
       - name: Envoyer le brief
         env:
           DISCORD_WEBHOOK: ${{ secrets.DISCORD_WEBHOOK }}
+          # Lancement manuel (bouton Run workflow) => on force l'envoi.
+          # Lancement automatique (6h/20h) => FORCE vide, l'horaire est respecté.
+          FORCE: ${{ github.event_name == 'workflow_dispatch' && '1' || '' }}
         run: python crypto_brief_gh.py
