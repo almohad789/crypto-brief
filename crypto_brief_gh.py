@@ -169,7 +169,7 @@ def build_message(eur, var24, usd, previous):
         try:
             prev_hour = int(prev_ts.split(" ")[1].split("h")[0])
             moment = "soir" if prev_hour >= 12 else "matin"
-            prev_label = f"brief du {moment} ({prev_ts})"
+            prev_label = f"brief du {moment} {prev_ts}"
         except Exception:
             prev_label = f"brief du {prev_ts}"
  
@@ -178,32 +178,32 @@ def build_message(eur, var24, usd, previous):
     if resume:
         lines.append(resume)
     lines.append("```")
-    header = f"{'Crypto':<5} {'24h':>7}  {'Prix €':>10}  {'Prix $':>10}"
+    header = f"{'Crypto':<6}{'24h':>7} {'Prix €':>8} {'Prix $':>8}"
     if prev_ts:
-        header += f"  {'vs ' + prev_ts:>12}"
+        header += f" {'vs':>7}"
     lines.append(header)
     lines.append("─" * len(header))
  
     for sym, cid in COINS.items():
         v = var24.get(cid)
         arrow = "▲" if (v or 0) >= 0 else "▼"
-        pct = f"{arrow}{v:+.1f}%" if v is not None else "   —"
-        row = f"{sym:<5} {pct:>7}  {fmt(eur.get(cid)):>10}  {fmt(usd.get(cid)):>10}"
-        # évolution vs brief précédent
+        pct = f"{arrow}{v:+.1f}%" if v is not None else "—"
+        row = f"{sym:<6}{pct:>7} {fmt(eur.get(cid)):>8} {fmt(usd.get(cid)):>8}"
         if prev_ts:
             p = prev_eur.get(cid)
             c = eur.get(cid)
             if p and c:
                 delta = (c / p - 1) * 100
                 da = "▲" if delta >= 0 else "▼"
-                row += f"  {da}{delta:+.1f}%".rjust(13)
+                row += f" {da}{delta:+.1f}%".rjust(8)
             else:
-                row += f"{'—':>13}"
+                row += f"{'—':>8}"
         lines.append(row)
  
-    lines.append("```")
     if prev_label:
-        lines.append(f"-# vs = évolution depuis le {prev_label}")
+        lines.append("─" * len(header))
+        lines.append(f"vs = depuis {prev_label}")
+    lines.append("```")
     return "\n".join(lines)
  
  
