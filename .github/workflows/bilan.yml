@@ -1,29 +1,51 @@
 name: Bilans crypto Discord
- 
+
 on:
   schedule:
-    # 12h Paris, été (UTC+2) et hiver (UTC+1). Le script vérifie l'heure
-    # de Paris et ce qui est dû (lundi, 1er du mois, trimestre, 1er janvier).
-    - cron: "0 10 * * *"
-    - cron: "0 11 * * *"
+    # Objectif : vers midi, heure de Paris. Le script accepte 12h-17h59
+    # Paris et utilise bilan_state.json pour ne jamais poster deux fois.
+    # Plusieurs crons = filet de sécurité contre les retards/sauts
+    # de GitHub Actions. Minute 7 : hors des pics de charge.
+    - cron: "7 10 * * *"   # 12h07 Paris en été / 11h07 en hiver (ignoré)
+    - cron: "7 11 * * *"   # 13h07 été / 12h07 hiver
+    - cron: "7 13 * * *"   # rattrapage si les précédents ont sauté
   workflow_dispatch:
- 
+
+permissions:
+  contents: write
+
+concurrency:
+  group: crypto-brief-repo
+  cancel-in-progress: false
+
 jobs:
   bilan:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
- 
+
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
- 
+
       - name: Installer les dependances
         run: pip install requests
- 
+
       - name: Envoyer les bilans
         env:
           DISCORD_WEBHOOK: ${{ secrets.DISCORD_WEBHOOK }}
           FORCE: ${{ github.event_name == 'workflow_dispatch' && '1' || '' }}
         run: python bilan_crypto.py
- 
+
+      - name: Sauvegarder l'etat des bilans
+        run: |
+          git config user.name "bilan-bot"
+          git config user.email "bilan-bot@users.noreply.github.com"
+          git add bilan_state.json || true
+          if ! git diff --cached --quiet; then
+            git commit -m "maj etat bilans"
+            for i in 1 2 3; do
+              git pull --rebase && git push && break
+              sleep 5
+            done
+          fi
