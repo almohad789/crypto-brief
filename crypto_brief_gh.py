@@ -1,45 +1,37 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-Brief crypto Discord — 6h et 20h (heure française)
-Poste un graphique (une ligne horizontale par crypto) avec logo, prix € et $,
-variation %, sur fond transparent, dans un salon Discord via webhook.
+Brief crypto Discord — 6h et 20h (heure de Paris), version texte simple.
+Pour chaque crypto : nom, variation 24h (%), prix en € et $, et évolution
+par rapport au brief précédent (sauvegardé dans previous_prices.json).
  
-Dépendances : pip install requests matplotlib pillow
+Dépendances : pip install requests
 """
  
-import io
 import os
 import sys
+import json
 import time
 import datetime
 from zoneinfo import ZoneInfo
  
 import requests
-import matplotlib
-matplotlib.use("Agg")
-import matplotlib.pyplot as plt
-from matplotlib.patches import FancyBboxPatch
-from matplotlib.offsetbox import OffsetImage, AnnotationBbox
-from PIL import Image
  
-# ─────────────────────────────────────────────────────────────
-# CONFIG
 # ─────────────────────────────────────────────────────────────
 WEBHOOK_URL = os.environ.get("DISCORD_WEBHOOK", "")
-DAYS = 1            # fenêtre du graphique (1 = 24h)
 API = "https://api.coingecko.com/api/v3"
+STATE_FILE = "previous_prices.json"
  
-# symbole -> (id CoinGecko, couleur de la courbe)
+# symbole -> id CoinGecko
 COINS = {
-    "BTC":  ("bitcoin",          "#f7931a"),
-    "ETH":  ("ethereum",         "#627eea"),
-    "SOL":  ("solana",           "#14f195"),
-    "XRP":  ("ripple",           "#00aae4"),
-    "LTC":  ("litecoin",         "#a6a9aa"),
-    "ONDO": ("ondo-finance",     "#4f7cff"),
-    "HBAR": ("hedera-hashgraph", "#8259ef"),
-    "XDC":  ("xdce-crowd-sale",  "#f4900c"),
+    "BTC":  "bitcoin",
+    "ETH":  "ethereum",
+    "SOL":  "solana",
+    "XRP":  "ripple",
+    "LTC":  "litecoin",
+    "ONDO": "ondo-finance",
+    "HBAR": "hedera-hashgraph",
+    "XDC":  "xdce-crowd-sale",
 }
  
  
@@ -59,218 +51,164 @@ def fmt(v):
     return f"{v:.4f}"
  
  
-# ─────────────────────────────────────────────────────────────
-# RÉCUPÉRATION DES DONNÉES
-# ─────────────────────────────────────────────────────────────
 def fetch_json(url, params=None, retries=4):
-    """GET avec réessais automatiques si limite de débit (429)."""
     for attempt in range(retries):
         r = requests.get(url, params=params, timeout=30)
         if r.status_code == 429:
-            wait = 20 * (attempt + 1)   # 20s, 40s, 60s...
-            print(f"[info] limite API atteinte, on attend {wait}s...")
+            wait = 20 * (attempt + 1)
+            print(f"[info] limite API, attente {wait}s...")
             time.sleep(wait)
             continue
         r.raise_for_status()
         return r.json()
     r.raise_for_status()
-    return r.json()
  
  
-def fetch_all():
-    ids = ",".join(cid for cid, _ in COINS.values())
- 
-    # Prix USD (une seule requête)
-    try:
-        usd = fetch_json(f"{API}/simple/price",
-                         {"ids": ids, "vs_currencies": "usd"})
-    except Exception as e:
-        print(f"[warn] prix USD : {e}")
-        usd = {}
- 
-    # Prix EUR + URL des logos (une seule requête)
-    logos_url = {}
-    eur = {}
+def fetch_data():
+    """Prix EUR + variation 24h en un appel, prix USD en un autre."""
+    ids = ",".join(COINS.values())
+    eur, var24, usd = {}, {}, {}
     try:
         markets = fetch_json(f"{API}/coins/markets",
                              {"vs_currency": "eur", "ids": ids})
         for m in markets:
             eur[m["id"]] = m.get("current_price")
-            logos_url[m["id"]] = m.get("image")
+            var24[m["id"]] = m.get("price_change_percentage_24h")
     except Exception as e:
         print(f"[warn] marchés EUR : {e}")
- 
-    # Courbe (variation %) par crypto
-    curves = {}
-    for sym, (cid, _) in COINS.items():
-        try:
-            data = fetch_json(f"{API}/coins/{cid}/market_chart",
-                              {"vs_currency": "eur", "days": DAYS})
-            prices = data.get("prices", [])
-            if prices:
-                t0 = prices[0][0]
-                base = prices[0][1]
-                xs = [(p[0] - t0) / 3_600_000 for p in prices]
-                ys = [(p[1] / base - 1) * 100 for p in prices]
-                curves[sym] = (xs, ys)
-                if eur.get(cid) is None:
-                    eur[cid] = prices[-1][1]
-        except Exception as e:
-            print(f"[warn] courbe {sym} ({cid}) : {e}")
-        time.sleep(8)  # pause généreuse pour rester sous la limite CoinGecko
- 
-    return curves, eur, usd, logos_url
- 
- 
-def load_logo(sym, cid, url):
-    """Télécharge et recadre le logo en carré transparent 96px."""
+    time.sleep(3)
     try:
-        r = requests.get(url, timeout=30)
-        r.raise_for_status()
-        im = Image.open(io.BytesIO(r.content)).convert("RGBA")
-        bbox = im.getbbox()
-        if bbox:
-            im = im.crop(bbox)
-        w, h = im.size
-        s = max(w, h)
-        canvas = Image.new("RGBA", (s, s), (0, 0, 0, 0))
-        canvas.paste(im, ((s - w) // 2, (s - h) // 2), im)
-        return canvas.resize((96, 96), Image.LANCZOS)
+        data = fetch_json(f"{API}/simple/price",
+                          {"ids": ids, "vs_currencies": "usd"})
+        for cid, v in data.items():
+            usd[cid] = v.get("usd")
     except Exception as e:
-        print(f"[warn] logo {sym} : {e}")
+        print(f"[warn] prix USD : {e}")
+    return eur, var24, usd
+ 
+ 
+def load_previous():
+    try:
+        with open(STATE_FILE, "r", encoding="utf-8") as f:
+            return json.load(f)
+    except Exception:
+        return {}
+ 
+ 
+def save_current(eur):
+    now = datetime.datetime.now(ZoneInfo("Europe/Paris"))
+    data = {"timestamp": now.strftime("%d/%m %Hh%M"), "eur": eur}
+    with open(STATE_FILE, "w", encoding="utf-8") as f:
+        json.dump(data, f, ensure_ascii=False, indent=2)
+ 
+ 
+def build_summary_line(eur, var24, prev_eur):
+    """Résumé synthétique du marché en 1-2 phrases."""
+    vals = [(sym, var24.get(cid)) for sym, cid in COINS.items()
+            if var24.get(cid) is not None]
+    if not vals:
         return None
  
+    ups = [(s, v) for s, v in vals if v >= 0]
+    downs = [(s, v) for s, v in vals if v < 0]
+    n = len(vals)
  
-# ─────────────────────────────────────────────────────────────
-# GRAPHIQUE
-# ─────────────────────────────────────────────────────────────
-def build_chart(curves, eur, usd, logos):
-    syms = [s for s in COINS if s in curves]
-    if not syms:
-        return None, {}
+    # Tendance générale sur 24h
+    if len(ups) == n:
+        tone = "Marché entièrement dans le vert"
+    elif len(downs) == n:
+        tone = "Marché entièrement dans le rouge"
+    elif len(ups) >= n * 0.7:
+        tone = "Marché plutôt haussier"
+    elif len(downs) >= n * 0.7:
+        tone = "Marché plutôt baissier"
+    else:
+        tone = "Marché partagé"
  
-    hours = int(DAYS * 24)
-    ticks = [0, hours // 4, hours // 2, 3 * hours // 4, hours]
+    parts = [f"{tone} sur 24h ({len(ups)} hausse{'s' if len(ups) > 1 else ''}, "
+             f"{len(downs)} baisse{'s' if len(downs) > 1 else ''})"]
  
-    plt.style.use("dark_background")
-    nrows = len(syms)
-    fig, axes = plt.subplots(nrows, 1, figsize=(7.2, 0.72 * nrows),
-                             dpi=140, sharex=False)
-    if nrows == 1:
-        axes = [axes]
+    if ups:
+        top = max(ups, key=lambda x: x[1])
+        if top[1] >= 1:
+            parts.append(f"{top[0]} mène à {top[1]:+.1f}%")
+    if downs:
+        worst = min(downs, key=lambda x: x[1])
+        if worst[1] <= -1:
+            parts.append(f"{worst[0]} recule le plus à {worst[1]:+.1f}%")
  
-    summary = {}
-    for ax, sym in zip(axes, syms):
-        cid, color = COINS[sym]
-        xs, ys = curves[sym]
-        var = ys[-1]
-        summary[sym] = var
-        up = var >= 0
+    phrase = ". ".join([parts[0]] + [", ".join(parts[1:])]) if len(parts) > 1 else parts[0]
  
-        box = FancyBboxPatch(
-            (0.0, 0.0), 1.0, 1.0,
-            boxstyle="round,pad=0,rounding_size=0.06",
-            mutation_aspect=0.07,
-            linewidth=0.8, edgecolor="#ffffff", facecolor="#1e1f22",
-            transform=ax.transAxes, zorder=0, clip_on=False,
-        )
-        ax.add_patch(box)
+    # Évolution moyenne depuis le brief précédent
+    if prev_eur:
+        deltas = []
+        for sym, cid in COINS.items():
+            p, c = prev_eur.get(cid), eur.get(cid)
+            if p and c:
+                deltas.append((c / p - 1) * 100)
+        if deltas:
+            avg = sum(deltas) / len(deltas)
+            if avg >= 0.5:
+                phrase += f". Depuis le dernier brief, l'ensemble progresse ({avg:+.1f}% en moyenne)"
+            elif avg <= -0.5:
+                phrase += f". Depuis le dernier brief, l'ensemble se replie ({avg:+.1f}% en moyenne)"
+            else:
+                phrase += ". Peu de mouvement depuis le dernier brief"
  
-        ax.plot(xs, ys, color=color, linewidth=1.8, zorder=3)
-        ax.fill_between(xs, ys, 0, color=color, alpha=0.15, zorder=2)
-        ax.axhline(0, color="#555", linewidth=0.6, linestyle="--", zorder=1)
- 
-        # Logo à gauche
-        logo = logos.get(sym)
-        if logo is not None:
-            oi = OffsetImage(logo, zoom=0.28)
-            ab = AnnotationBbox(oi, (-0.055, 0.5), xycoords=ax.transAxes,
-                                frameon=False, box_alignment=(0.5, 0.5), zorder=5)
-            ax.add_artist(ab)
- 
-        # Prix € et $ (gris) + variation % (couleur)
-        usd_price = usd.get(cid, {}).get("usd") if isinstance(usd.get(cid), dict) else None
-        ax.text(1.03, 0.80, f"{fmt(eur.get(cid))} €", transform=ax.transAxes,
-                ha="left", va="center", fontsize=8, color="#6b7075")
-        ax.text(1.03, 0.55, f"{fmt(usd_price)} $", transform=ax.transAxes,
-                ha="left", va="center", fontsize=8, color="#6b7075")
-        arrow = "\u25b2" if up else "\u25bc"
-        vcol = "#3ba55d" if up else "#ed4245"
-        ax.text(1.03, 0.20, f"{arrow} {var:+.1f}%", transform=ax.transAxes,
-                ha="left", va="center", fontsize=9, fontweight="bold", color=vcol)
- 
-        ax.set_yticks([])
-        ax.set_xticks(ticks)
-        ax.set_xlim(0, hours)
-        ax.tick_params(colors="#ffffff", labelsize=6.5, labelbottom=True,
-                       length=2, pad=1)
-        ax.patch.set_visible(False)
-        for spine in ax.spines.values():
-            spine.set_visible(False)
-        ax.margins(x=0)
- 
-    # En-tête : titre à gauche, date/heure à droite
-    now = datetime.datetime.now(ZoneInfo("Europe/Paris")).strftime("%d/%m/%Y %H:%M")
-    fig.text(0.10, 0.965, "Brief crypto", ha="left", va="center",
-             fontsize=13, fontweight="bold", color="#fff")
-    fig.text(0.80, 0.965, now, ha="right", va="center",
-             fontsize=10, color="#9aa0a6")
- 
-    fig.subplots_adjust(left=0.10, right=0.80, top=0.93, bottom=0.10, hspace=0.60)
- 
-    # Nom de chaque crypto en gris, au niveau du "0"
-    fig.canvas.draw()
-    for ax, sym in zip(axes, syms):
-        x_disp, _ = ax.transAxes.transform((-0.055, 0.5))
-        x_fig, _ = fig.transFigure.inverted().transform((x_disp, 0))
-        lbls = ax.get_xticklabels()
-        if lbls:
-            bb = lbls[0].get_window_extent()
-            _, y_fig = fig.transFigure.inverted().transform(
-                ((bb.x0 + bb.x1) / 2, (bb.y0 + bb.y1) / 2))
-            fig.text(x_fig, y_fig, sym, ha="center", va="center",
-                     fontsize=7, fontweight="bold", color="#6b7075")
- 
-    # Crédit en bas à droite
-    fig.text(0.80, 0.045, "générée par almohad789", ha="right", va="center",
-             fontsize=8, color="#6b7075", style="italic")
- 
-    buf = io.BytesIO()
-    fig.savefig(buf, format="png", transparent=True)
-    plt.close(fig)
-    buf.seek(0)
-    return buf, summary
+    return phrase + "."
  
  
-# ─────────────────────────────────────────────────────────────
-# MESSAGE + ENVOI
-# ─────────────────────────────────────────────────────────────
-def build_message(summary):
-    now = datetime.datetime.now(ZoneInfo("Europe/Paris")).strftime("%d/%m %H:%M")
-    hausses = sorted([(s, v) for s, v in summary.items() if v >= 0], key=lambda x: -x[1])
-    baisses = sorted([(s, v) for s, v in summary.items() if v < 0], key=lambda x: x[1])
-    lines = [f"**📊 Brief crypto — {now}**", "```"]
-    if hausses:
-        lines.append("✅ HAUSSES")
-        for s, v in hausses:
-            lines.append(f"   {s:<5} {v:+.1f}%")
-    if baisses:
-        if hausses:
-            lines.append("")
-        lines.append("🔻 BAISSES")
-        for s, v in baisses:
-            lines.append(f"   {s:<5} {v:+.1f}%")
+def build_message(eur, var24, usd, previous):
+    now = datetime.datetime.now(ZoneInfo("Europe/Paris")).strftime("%d/%m %Hh%M")
+    prev_eur = previous.get("eur", {})
+    prev_ts = previous.get("timestamp")
+ 
+    # Libellé du brief précédent : soir ou matin selon son heure
+    prev_label = None
+    if prev_ts:
+        try:
+            prev_hour = int(prev_ts.split(" ")[1].split("h")[0])
+            moment = "soir" if prev_hour >= 12 else "matin"
+            prev_label = f"brief du {moment} ({prev_ts})"
+        except Exception:
+            prev_label = f"brief du {prev_ts}"
+ 
+    lines = [f"**📊 Brief crypto — {now}**"]
+    resume = build_summary_line(eur, var24, prev_eur)
+    if resume:
+        lines.append(resume)
     lines.append("```")
+    header = f"{'':<5} {'24h':>7}  {'Prix €':>10}  {'Prix $':>10}"
+    if prev_ts:
+        header += f"  {'vs ' + prev_ts:>12}"
+    lines.append(header)
+    lines.append("─" * len(header))
+ 
+    for sym, cid in COINS.items():
+        v = var24.get(cid)
+        arrow = "▲" if (v or 0) >= 0 else "▼"
+        pct = f"{arrow}{v:+.1f}%" if v is not None else "   —"
+        row = f"{sym:<5} {pct:>7}  {fmt(eur.get(cid)):>10}  {fmt(usd.get(cid)):>10}"
+        # évolution vs brief précédent
+        if prev_ts:
+            p = prev_eur.get(cid)
+            c = eur.get(cid)
+            if p and c:
+                delta = (c / p - 1) * 100
+                da = "▲" if delta >= 0 else "▼"
+                row += f"  {da}{delta:+.1f}%".rjust(13)
+            else:
+                row += f"{'—':>13}"
+        lines.append(row)
+ 
+    lines.append("```")
+    if prev_label:
+        lines.append(f"-# vs = évolution depuis le {prev_label}")
     return "\n".join(lines)
  
  
-def post_to_discord(image_buf, message):
-    resp = requests.post(
-        WEBHOOK_URL,
-        data={"content": message},
-        files={"file": ("crypto.png", image_buf, "image/png")},
-        timeout=30,
-    )
+def post_to_discord(message):
+    resp = requests.post(WEBHOOK_URL, json={"content": message}, timeout=30)
     resp.raise_for_status()
     print("Posté sur Discord ✔")
  
@@ -284,17 +222,15 @@ def main():
         print(f"Pas l'heure de poster (Paris {h}). On s'arrête.")
         return
  
-    curves, eur, usd, logos_url = fetch_all()
-    logos = {}
-    for sym, (cid, _) in COINS.items():
-        if logos_url.get(cid):
-            logos[sym] = load_logo(sym, cid, logos_url[cid])
- 
-    image_buf, summary = build_chart(curves, eur, usd, logos)
-    if not summary:
+    eur, var24, usd = fetch_data()
+    if not eur:
         print("Aucune donnée récupérée, rien posté.")
         return
-    post_to_discord(image_buf, build_message(summary))
+ 
+    previous = load_previous()
+    message = build_message(eur, var24, usd, previous)
+    post_to_discord(message)
+    save_current(eur)   # mémorise pour le prochain brief
  
  
 if __name__ == "__main__":
