@@ -2,11 +2,17 @@ name: Alertes Market Cap
 
 on:
   schedule:
-    - cron: "*/30 * * * *"   # toutes les 30 minutes
+    # Toutes les 30 min, aux minutes 13 et 43 : les minutes 0 et 30
+    # sont surchargées chez GitHub et souvent sautées.
+    - cron: "13,43 * * * *"
   workflow_dispatch:
 
 permissions:
   contents: write
+
+concurrency:
+  group: crypto-brief-repo
+  cancel-in-progress: false
 
 jobs:
   alerte:
@@ -24,14 +30,20 @@ jobs:
       - name: Verifier les market caps
         env:
           DISCORD_WEBHOOK: ${{ secrets.DISCORD_WEBHOOK }}
+          FORCE: ${{ github.event_name == 'workflow_dispatch' && '1' || '' }}
+          # Décommente pour des alertes plus fréquentes (défaut : 10)
+          # SEUIL_ALERTE: "5"
         run: python alerte_crypto.py
 
       - name: Sauvegarder l'etat des alertes
         run: |
           git config user.name "alerte-bot"
           git config user.email "alerte-bot@users.noreply.github.com"
-          git pull --rebase || true
           git add alerte_state.json || true
-          git diff --cached --quiet || git commit -m "maj etat alertes"
-          git push || true
-          
+          if ! git diff --cached --quiet; then
+            git commit -m "maj etat alertes"
+            for i in 1 2 3; do
+              git pull --rebase && git push && break
+              sleep 5
+            done
+          fi
