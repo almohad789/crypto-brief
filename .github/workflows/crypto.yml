@@ -2,14 +2,22 @@ name: Brief crypto Discord
 
 on:
   schedule:
-    - cron: "0 4 * * *"
-    - cron: "0 5 * * *"
-    - cron: "0 18 * * *"
-    - cron: "0 19 * * *"
+    # 6h et 20h Paris, été (UTC+2) et hiver (UTC+1).
+    # Minute 7 : les crons à la minute 0 sont les plus retardés/sautés
+    # par GitHub Actions. Le script vérifie lui-même l'heure de Paris
+    # et la déduplication, donc les crons "en trop" s'arrêtent seuls.
+    - cron: "7 4 * * *"    # 6h07 Paris en été
+    - cron: "7 5 * * *"    # 6h07 Paris en hiver (7h07 en été -> dédup)
+    - cron: "7 18 * * *"   # 20h07 Paris en été
+    - cron: "7 19 * * *"   # 20h07 Paris en hiver (21h07 en été -> dédup)
   workflow_dispatch:
 
 permissions:
   contents: write
+
+concurrency:
+  group: crypto-brief-repo
+  cancel-in-progress: false
 
 jobs:
   brief:
@@ -35,5 +43,10 @@ jobs:
           git config user.name "brief-bot"
           git config user.email "brief-bot@users.noreply.github.com"
           git add previous_prices.json || true
-          git diff --cached --quiet || git commit -m "maj prix brief"
-          git push || true
+          if ! git diff --cached --quiet; then
+            git commit -m "maj prix brief"
+            for i in 1 2 3; do
+              git pull --rebase && git push && break
+              sleep 5
+            done
+          fi
