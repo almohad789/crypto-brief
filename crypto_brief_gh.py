@@ -4,24 +4,29 @@
 Brief crypto Discord — 6h et 20h (heure de Paris), version texte simple.
 Pour chaque crypto : nom, variation 24h (%), prix en € et $, et évolution
 par rapport au brief précédent (sauvegardé dans previous_prices.json).
- 
+
+Déduplication : previous_prices.json mémorise, par créneau ("matin"/"soir"),
+la date ISO du dernier envoi. Un lancement manuel (FORCE=1) poste toujours,
+mais ne marque un créneau comme "fait" que s'il a lieu pendant ce créneau —
+un test à 12h ou 15h ne bloquera donc jamais le brief du soir.
+
 Dépendances : pip install requests
 """
- 
+
 import os
 import sys
 import json
 import time
 import datetime
 from zoneinfo import ZoneInfo
- 
+
 import requests
- 
+
 # ─────────────────────────────────────────────────────────────
 WEBHOOK_URL = os.environ.get("DISCORD_WEBHOOK", "")
 API = "https://api.coingecko.com/api/v3"
 STATE_FILE = "previous_prices.json"
- 
+
 # symbole -> id CoinGecko
 COINS = {
     "BTC":  "bitcoin",
@@ -33,8 +38,8 @@ COINS = {
     "HBAR": "hedera-hashgraph",
     "XDC":  "xdce-crowd-sale",
 }
- 
- 
+
+
 def slot_actuel(now):
     """Créneau du brief, tolérant au retard de GitHub Actions.
     matin = 6h→11h59, soir = 20h→23h59 (heure de Paris)."""
@@ -47,19 +52,11 @@ def slot_actuel(now):
 
 
 def deja_poste(previous, slot, now):
-    """Évite un doublon : le 2e cron saisonnier ne reposte pas le même créneau."""
-    ts = previous.get("timestamp")
-    if not ts:
-        return False
-    try:
-        jour = ts.split(" ")[0]
-        heure = int(ts.split(" ")[1].split("h")[0])
-        prev_slot = "matin" if heure < 12 else "soir"
-        return jour == now.strftime("%d/%m") and prev_slot == slot
-    except Exception:
-        return False
- 
- 
+    """True si ce créneau a déjà été posté aujourd'hui (état explicite)."""
+    posted = previous.get("posted", {})
+    return posted.get(slot) == now.date().isoformat()
+
+
 def fmt(v):
     if v is None:
         return "—"
@@ -68,8 +65,8 @@ def fmt(v):
     if v >= 1:
         return f"{v:,.2f}".replace(",", " ")
     return f"{v:.4f}"
- 
- 
+
+
 def fetch_json(url, params=None, retries=4):
     for attempt in range(retries):
         r = requests.get(url, params=params, timeout=30)
@@ -81,8 +78,8 @@ def fetch_json(url, params=None, retries=4):
         r.raise_for_status()
         return r.json()
     r.raise_for_status()
- 
- 
+
+
 def fetch_data():
     """Prix EUR + variation 24h en un appel, prix USD en un autre."""
     ids = ",".join(COINS.values())
@@ -104,34 +101,41 @@ def fetch_data():
     except Exception as e:
         print(f"[warn] prix USD : {e}")
     return eur, var24, usd
- 
- 
+
+
 def load_previous():
     try:
         with open(STATE_FILE, "r", encoding="utf-8") as f:
             return json.load(f)
     except Exception:
         return {}
- 
- 
-def save_current(eur):
-    now = datetime.datetime.now(ZoneInfo("Europe/Paris"))
-    data = {"timestamp": now.strftime("%d/%m %Hh%M"), "eur": eur}
+
+
+def save_current(eur, previous, slot, now):
+    """Mémorise les prix + marque le créneau comme posté (si créneau réel)."""
+    posted = dict(previous.get("posted", {}))
+    if slot:  # None si lancement FORCE hors créneau : on ne bloque rien
+        posted[slot] = now.date().isoformat()
+    data = {
+        "timestamp": now.strftime("%d/%m %Hh%M"),
+        "posted": posted,
+        "eur": eur,
+    }
     with open(STATE_FILE, "w", encoding="utf-8") as f:
         json.dump(data, f, ensure_ascii=False, indent=2)
- 
- 
+
+
 def build_summary_line(eur, var24, prev_eur):
     """Résumé synthétique du marché en 1-2 phrases."""
     vals = [(sym, var24.get(cid)) for sym, cid in COINS.items()
             if var24.get(cid) is not None]
     if not vals:
         return None
- 
+
     ups = [(s, v) for s, v in vals if v >= 0]
     downs = [(s, v) for s, v in vals if v < 0]
     n = len(vals)
- 
+
     # Tendance générale sur 24h
     if len(ups) == n:
         tone = "Marché entièrement dans le vert"
@@ -143,10 +147,10 @@ def build_summary_line(eur, var24, prev_eur):
         tone = "Marché plutôt baissier"
     else:
         tone = "Marché partagé"
- 
+
     parts = [f"{tone} sur 24h ({len(ups)} hausse{'s' if len(ups) > 1 else ''}, "
              f"{len(downs)} baisse{'s' if len(downs) > 1 else ''})"]
- 
+
     if ups:
         top = max(ups, key=lambda x: x[1])
         if top[1] >= 1:
@@ -155,9 +159,9 @@ def build_summary_line(eur, var24, prev_eur):
         worst = min(downs, key=lambda x: x[1])
         if worst[1] <= -1:
             parts.append(f"{worst[0]} recule le plus à {worst[1]:+.1f}%")
- 
+
     phrase = ". ".join([parts[0]] + [", ".join(parts[1:])]) if len(parts) > 1 else parts[0]
- 
+
     # Évolution moyenne depuis le brief précédent
     if prev_eur:
         deltas = []
@@ -173,15 +177,15 @@ def build_summary_line(eur, var24, prev_eur):
                 phrase += f". Depuis le dernier brief, l'ensemble se replie ({avg:+.1f}% en moyenne)"
             else:
                 phrase += ". Peu de mouvement depuis le dernier brief"
- 
+
     return phrase + "."
- 
- 
+
+
 def build_message(eur, var24, usd, previous):
     now = datetime.datetime.now(ZoneInfo("Europe/Paris")).strftime("%d/%m %Hh%M")
     prev_eur = previous.get("eur", {})
     prev_ts = previous.get("timestamp")
- 
+
     # Libellé du brief précédent : soir ou matin selon son heure
     prev_label = None
     if prev_ts:
@@ -191,7 +195,7 @@ def build_message(eur, var24, usd, previous):
             prev_label = f"brief du {moment} {prev_ts}"
         except Exception:
             prev_label = f"brief du {prev_ts}"
- 
+
     lines = [f"**📊 Brief crypto — {now}**"]
     resume = build_summary_line(eur, var24, prev_eur)
     if resume:
@@ -202,7 +206,7 @@ def build_message(eur, var24, usd, previous):
         header += f" {'vs':>7}"
     lines.append(header)
     lines.append("─" * len(header))
- 
+
     for sym, cid in COINS.items():
         v = var24.get(cid)
         arrow = "▲" if (v or 0) >= 0 else "▼"
@@ -218,20 +222,20 @@ def build_message(eur, var24, usd, previous):
             else:
                 row += f"{'—':>8}"
         lines.append(row)
- 
+
     if prev_label:
         lines.append("─" * len(header))
         lines.append(f"vs = depuis {prev_label}")
     lines.append("```")
     return "\n".join(lines)
- 
- 
+
+
 def post_to_discord(message):
     resp = requests.post(WEBHOOK_URL, json={"content": message}, timeout=30)
     resp.raise_for_status()
     print("Posté sur Discord ✔")
- 
- 
+
+
 def main():
     if not WEBHOOK_URL:
         print("Erreur : secret DISCORD_WEBHOOK manquant.")
@@ -239,9 +243,10 @@ def main():
 
     now = datetime.datetime.now(ZoneInfo("Europe/Paris"))
     previous = load_previous()
+    slot = slot_actuel(now)
+    force = os.environ.get("FORCE") == "1"
 
-    if os.environ.get("FORCE") != "1":
-        slot = slot_actuel(now)
+    if not force:
         if slot is None:
             print(f"Pas l'heure de poster (Paris {now.strftime('%H:%M')}). On s'arrête.")
             return
@@ -253,13 +258,11 @@ def main():
     if not eur:
         print("Aucune donnée récupérée, rien posté.")
         return
- 
-    previous = load_previous()
+
     message = build_message(eur, var24, usd, previous)
     post_to_discord(message)
-    save_current(eur)   # mémorise pour le prochain brief
- 
- 
+    save_current(eur, previous, slot, now)   # mémorise pour le prochain brief
+
+
 if __name__ == "__main__":
     main()
- 
