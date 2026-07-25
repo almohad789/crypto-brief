@@ -4,19 +4,26 @@
 Bilans crypto Discord — hebdo / mensuel / 3 mois / annuel.
 Indépendant du brief quotidien 6h/20h.
 
-Se déclenche à 12h (heure de Paris) et poste ce qui est dû ce jour-là :
+Poste ce qui est dû ce jour-là :
   - lundi                      -> bilan semaine (7 jours)
   - 1er du mois                -> bilan mois (30 jours)
   - 1er janv/avril/juil/oct    -> bilan 3 mois (90 jours)
   - 1er janvier                -> bilan année (1 an)
 
-FORCE=1 (lancement manuel) -> poste les 4 bilans pour tester.
+Fenêtre d'envoi : 12h → 17h59 (heure de Paris), large pour absorber les
+retards de GitHub Actions. Un état (bilan_state.json) mémorise la date du
+dernier envoi de chaque bilan pour éviter tout doublon si plusieurs crons
+passent le même jour.
+
+FORCE=1 (lancement manuel) -> poste les 4 bilans pour tester,
+sans toucher à l'état (les bilans planifiés restent dus).
 
 Dépendances : pip install requests
 """
 
 import os
 import sys
+import json
 import time
 import datetime
 from zoneinfo import ZoneInfo
@@ -25,6 +32,7 @@ import requests
 
 WEBHOOK_URL = os.environ.get("DISCORD_WEBHOOK", "")
 API = "https://api.coingecko.com/api/v3"
+STATE_FILE = "bilan_state.json"
 
 COINS = {
     "BTC":  "bitcoin",
@@ -69,12 +77,27 @@ def fetch_json(url, params=None, retries=4):
     r.raise_for_status()
 
 
-def bilans_du_jour():
+def load_state():
+    try:
+        with open(STATE_FILE, "r", encoding="utf-8") as f:
+            return json.load(f)
+    except Exception:
+        return {}
+
+
+def save_state(state):
+    with open(STATE_FILE, "w", encoding="utf-8") as f:
+        json.dump(state, f, ensure_ascii=False, indent=2)
+
+
+def bilans_du_jour(now, state):
+    """Bilans dus aujourd'hui et pas encore envoyés (état anti-doublon).
+    Fenêtre 12h-17h59 Paris : tolérante aux retards de GitHub Actions."""
     if os.environ.get("FORCE") == "1":
         return ["semaine", "mois", "3mois", "annee"]
-    now = datetime.datetime.now(ZoneInfo("Europe/Paris"))
-    if now.hour != 12:
+    if not (12 <= now.hour < 18):
         return []
+    today = now.date().isoformat()
     due = []
     if now.weekday() == 0:                       # lundi
         due.append("semaine")
@@ -84,7 +107,8 @@ def bilans_du_jour():
             due.append("3mois")
         if now.month == 1:
             due.append("annee")
-    return due
+    # retire ce qui a déjà été posté aujourd'hui
+    return [p for p in due if state.get(p) != today]
 
 
 def fetch_base():
@@ -111,12 +135,14 @@ def fetch_base():
 
 
 def fetch_90d():
-    """Variation 90 jours via market_chart (1 appel par crypto)."""
+    """Variation 90 jours via market_chart (1 appel par crypto).
+    Note : pas de paramètre `interval` — il est réservé aux plans payants
+    de CoinGecko et fait échouer l'appel sur l'API publique."""
     out = {}
     for sym, cid in COINS.items():
         try:
             data = fetch_json(f"{API}/coins/{cid}/market_chart",
-                              {"vs_currency": "eur", "days": 90, "interval": "daily"})
+                              {"vs_currency": "eur", "days": 90})
             prices = data.get("prices", [])
             if len(prices) >= 2 and prices[0][1]:
                 out[cid] = (prices[-1][1] / prices[0][1] - 1) * 100
@@ -171,10 +197,13 @@ def main():
         print("Erreur : secret DISCORD_WEBHOOK manquant.")
         sys.exit(1)
 
-    due = bilans_du_jour()
+    now = datetime.datetime.now(ZoneInfo("Europe/Paris"))
+    force = os.environ.get("FORCE") == "1"
+    state = load_state()
+
+    due = bilans_du_jour(now, state)
     if not due:
-        h = datetime.datetime.now(ZoneInfo("Europe/Paris")).strftime("%d/%m %H:%M")
-        print(f"Aucun bilan dû aujourd'hui ({h}). On s'arrête.")
+        print(f"Aucun bilan dû ({now.strftime('%d/%m %H:%M')}). On s'arrête.")
         return
 
     eur, usd, pcts = fetch_base()
@@ -184,6 +213,7 @@ def main():
 
     pct90 = fetch_90d() if "3mois" in due else {}
 
+    today = now.date().isoformat()
     for period in due:
         key = PERIODS[period][3]
         if period == "3mois":
@@ -193,7 +223,12 @@ def main():
         msg = build_message(period, eur, usd, values)
         post_to_discord(msg)
         print(f"Bilan {period} posté ✔")
+        if not force:           # les tests manuels ne consomment pas l'état
+            state[period] = today
         time.sleep(2)
+
+    if not force:
+        save_state(state)
 
 
 if __name__ == "__main__":
