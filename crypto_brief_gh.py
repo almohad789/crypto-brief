@@ -35,10 +35,29 @@ COINS = {
 }
  
  
-def heure_autorisee():
-    if os.environ.get("FORCE") == "1":
-        return True
-    return datetime.datetime.now(ZoneInfo("Europe/Paris")).hour in (6, 20)
+def slot_actuel(now):
+    """Créneau du brief, tolérant au retard de GitHub Actions.
+    matin = 6h→11h59, soir = 20h→23h59 (heure de Paris)."""
+    h = now.hour
+    if 6 <= h < 12:
+        return "matin"
+    if 20 <= h < 24:
+        return "soir"
+    return None
+
+
+def deja_poste(previous, slot, now):
+    """Évite un doublon : le 2e cron saisonnier ne reposte pas le même créneau."""
+    ts = previous.get("timestamp")
+    if not ts:
+        return False
+    try:
+        jour = ts.split(" ")[0]
+        heure = int(ts.split(" ")[1].split("h")[0])
+        prev_slot = "matin" if heure < 12 else "soir"
+        return jour == now.strftime("%d/%m") and prev_slot == slot
+    except Exception:
+        return False
  
  
 def fmt(v):
@@ -217,11 +236,19 @@ def main():
     if not WEBHOOK_URL:
         print("Erreur : secret DISCORD_WEBHOOK manquant.")
         sys.exit(1)
-    if not heure_autorisee():
-        h = datetime.datetime.now(ZoneInfo("Europe/Paris")).strftime("%H:%M")
-        print(f"Pas l'heure de poster (Paris {h}). On s'arrête.")
-        return
- 
+
+    now = datetime.datetime.now(ZoneInfo("Europe/Paris"))
+    previous = load_previous()
+
+    if os.environ.get("FORCE") != "1":
+        slot = slot_actuel(now)
+        if slot is None:
+            print(f"Pas l'heure de poster (Paris {now.strftime('%H:%M')}). On s'arrête.")
+            return
+        if deja_poste(previous, slot, now):
+            print(f"Brief du {slot} déjà posté aujourd'hui. On s'arrête.")
+            return
+
     eur, var24, usd = fetch_data()
     if not eur:
         print("Aucune donnée récupérée, rien posté.")
