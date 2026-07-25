@@ -178,7 +178,7 @@ def build_message(eur, var24, usd, previous):
     if resume:
         lines.append(resume)
     lines.append("```")
-    header = f"{'':<5} {'24h':>7}  {'Prix €':>10}  {'Prix $':>10}"
+    header = f"{'Crypto':<5} {'24h':>7}  {'Prix €':>10}  {'Prix $':>10}"
     if prev_ts:
         header += f"  {'vs ' + prev_ts:>12}"
     lines.append(header)
