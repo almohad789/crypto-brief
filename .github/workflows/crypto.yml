@@ -8,6 +8,9 @@ on:
     - cron: "0 19 * * *"
   workflow_dispatch:
 
+permissions:
+  contents: write
+
 jobs:
   brief:
     runs-on: ubuntu-latest
@@ -19,10 +22,18 @@ jobs:
           python-version: "3.12"
 
       - name: Installer les dependances
-        run: pip install requests matplotlib
+        run: pip install requests
 
       - name: Envoyer le brief
         env:
           DISCORD_WEBHOOK: ${{ secrets.DISCORD_WEBHOOK }}
           FORCE: ${{ github.event_name == 'workflow_dispatch' && '1' || '' }}
         run: python crypto_brief_gh.py
+
+      - name: Sauvegarder les prix pour le prochain brief
+        run: |
+          git config user.name "brief-bot"
+          git config user.email "brief-bot@users.noreply.github.com"
+          git add previous_prices.json || true
+          git diff --cached --quiet || git commit -m "maj prix brief"
+          git push || true
