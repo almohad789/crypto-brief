@@ -1,13 +1,13 @@
 {
-  "timestamp": "25/07 02h18",
+  "timestamp": "25/07 02h29",
   "eur": {
-    "bitcoin": 56332,
-    "ethereum": 1636.2,
-    "ripple": 0.959669,
-    "solana": 64.97,
-    "litecoin": 40.66,
-    "hedera-hashgraph": 0.062034,
-    "ondo-finance": 0.335157,
-    "xdce-crowd-sale": 0.02438621
+    "bitcoin": 56350,
+    "ethereum": 1637.3,
+    "ripple": 0.960478,
+    "solana": 65.03,
+    "litecoin": 40.67,
+    "hedera-hashgraph": 0.061956,
+    "ondo-finance": 0.336809,
+    "xdce-crowd-sale": 0.02438228
   }
 }
