@@ -5,6 +5,14 @@ Alertes Market Cap — Discord.
 Vérifie toutes les 30 min : si la market cap d'une crypto bouge de
 ±SEUIL % sur 24h, envoie une alerte immédiate.
 
+SEUIL est configurable via la variable d'environnement SEUIL_ALERTE
+(défaut : 10). Astuce : 10 % sur 24h est rare pour BTC/ETH — si tu veux
+des alertes plus fréquentes, mets par exemple SEUIL_ALERTE=5.
+
+FORCE=1 (lancement manuel) : envoie un message de test récapitulant les
+variations actuelles, pour vérifier que le webhook fonctionne, sans
+toucher à l'état anti-spam.
+
 Anti-spam : pas de nouvelle alerte pour la même crypto pendant
 COOLDOWN_H heures, sauf si le mouvement s'amplifie de 5 points ou plus.
 
@@ -26,7 +34,10 @@ WEBHOOK_URL = os.environ.get("DISCORD_WEBHOOK", "")
 API = "https://api.coingecko.com/api/v3"
 STATE_FILE = "alerte_state.json"
 
-SEUIL = 10.0        # % de variation de market cap sur 24h qui déclenche l'alerte
+try:
+    SEUIL = float(os.environ.get("SEUIL_ALERTE", "10"))
+except ValueError:
+    SEUIL = 10.0
 COOLDOWN_H = 12     # heures sans re-alerter la même crypto
 AMPLIF = 5.0        # points de % supplémentaires qui court-circuitent le cooldown
 
@@ -121,6 +132,24 @@ def build_alert(sym, change, cap, prix_eur, prix_usd):
     )
 
 
+def build_test_message(markets, sym_by_id):
+    """Récap de contrôle envoyé lors d'un lancement manuel (FORCE=1)."""
+    now = datetime.datetime.now(ZoneInfo("Europe/Paris")).strftime("%d/%m %Hh%M")
+    lines = [f"🧪 **Test alertes market cap — {now}** (seuil : ±{SEUIL:.0f}%)",
+             "```",
+             f"{'Crypto':<6}{'Cap 24h':>9}  {'Market cap':>10}",
+             "─" * 28]
+    for m in markets:
+        sym = sym_by_id.get(m["id"], m["id"])
+        ch = m.get("market_cap_change_percentage_24h")
+        pct = f"{ch:+.1f}%" if ch is not None else "—"
+        lines.append(f"{sym:<6}{pct:>9}  {fmt_cap(m.get('market_cap')):>10}")
+    lines.append("```")
+    lines.append("Le webhook et le script fonctionnent ✔ "
+                 "Une vraie alerte partira dès qu'une cap dépasse le seuil.")
+    return "\n".join(lines)
+
+
 def post_to_discord(message):
     resp = requests.post(WEBHOOK_URL, json={"content": message}, timeout=30)
     resp.raise_for_status()
@@ -140,6 +169,14 @@ def main():
         print(f"[warn] marchés : {e}")
         return
 
+    sym_by_id = {cid: sym for sym, cid in COINS.items()}
+
+    # Mode test : lancement manuel -> message de contrôle, état intact
+    if os.environ.get("FORCE") == "1":
+        post_to_discord(build_test_message(markets, sym_by_id))
+        print("Message de test envoyé ✔")
+        return
+
     time.sleep(2)
     usd = {}
     try:
@@ -151,7 +188,6 @@ def main():
 
     state = load_state()
     now_ts = time.time()
-    sym_by_id = {cid: sym for sym, cid in COINS.items()}
     alertes = 0
 
     for m in markets:
@@ -181,4 +217,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-  
