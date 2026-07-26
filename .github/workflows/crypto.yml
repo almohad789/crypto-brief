@@ -1,5 +1,5 @@
 name: Brief crypto Discord
- 
+
 on:
   schedule:
     # GitHub retarde souvent les crons de plusieurs heures (observé : 6h !).
@@ -11,33 +11,38 @@ on:
     - cron: "13,43 4-10 * * *"    # couvre le matin (UTC 4h-10h43)
     - cron: "13,43 18-22 * * *"   # couvre le soir  (UTC 18h-22h43)
   workflow_dispatch:
- 
+    inputs:
+      mode:
+        description: "auto = comme un cron planifie (creneau + dedup), test = poste immediatement"
+        required: false
+        default: "test"
+
 permissions:
   contents: write
- 
+
 concurrency:
   group: crypto-brief-repo
   cancel-in-progress: false
- 
+
 jobs:
   brief:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
- 
+
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
- 
+
       - name: Installer les dependances
         run: pip install requests
- 
+
       - name: Envoyer le brief
         env:
           DISCORD_WEBHOOK: ${{ secrets.DISCORD_WEBHOOK }}
-          FORCE: ${{ github.event_name == 'workflow_dispatch' && '1' || '' }}
+          FORCE: ${{ github.event_name == 'workflow_dispatch' && inputs.mode != 'auto' && '1' || '' }}
         run: python crypto_brief_gh.py
- 
+
       - name: Sauvegarder les prix pour le prochain brief
         run: |
           git config user.name "brief-bot"
@@ -50,4 +55,3 @@ jobs:
               sleep 5
             done
           fi
- 
