@@ -6,6 +6,11 @@ on:
     # sont surchargées chez GitHub et souvent sautées.
     - cron: "13,43 * * * *"
   workflow_dispatch:
+    inputs:
+      mode:
+        description: "auto = comme un cron planifie (creneau + dedup), test = poste immediatement"
+        required: false
+        default: "test"
 
 permissions:
   contents: write
@@ -30,7 +35,7 @@ jobs:
       - name: Verifier les market caps
         env:
           DISCORD_WEBHOOK: ${{ secrets.DISCORD_WEBHOOK }}
-          FORCE: ${{ github.event_name == 'workflow_dispatch' && '1' || '' }}
+          FORCE: ${{ github.event_name == 'workflow_dispatch' && inputs.mode != 'auto' && '1' || '' }}
           # Décommente pour des alertes plus fréquentes (défaut : 10)
           # SEUIL_ALERTE: "5"
         run: python alerte_crypto.py
