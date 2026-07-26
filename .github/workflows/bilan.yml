@@ -7,6 +7,11 @@ on:
     # (été UTC+2 / hiver UTC+1). bilan_state.json garantit zéro doublon.
     - cron: "13 10-16 * * *"
   workflow_dispatch:
+    inputs:
+      mode:
+        description: "auto = comme un cron planifie (creneau + dedup), test = poste immediatement"
+        required: false
+        default: "test"
 
 permissions:
   contents: write
@@ -31,7 +36,7 @@ jobs:
       - name: Envoyer les bilans
         env:
           DISCORD_WEBHOOK: ${{ secrets.DISCORD_WEBHOOK }}
-          FORCE: ${{ github.event_name == 'workflow_dispatch' && '1' || '' }}
+          FORCE: ${{ github.event_name == 'workflow_dispatch' && inputs.mode != 'auto' && '1' || '' }}
         run: python bilan_crypto.py
 
       - name: Sauvegarder l'etat des bilans
