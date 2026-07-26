@@ -1,43 +1,43 @@
 name: Brief crypto Discord
-
+ 
 on:
   schedule:
-    # 6h et 20h Paris, été (UTC+2) et hiver (UTC+1).
-    # Minute 7 : les crons à la minute 0 sont les plus retardés/sautés
-    # par GitHub Actions. Le script vérifie lui-même l'heure de Paris
-    # et la déduplication, donc les crons "en trop" s'arrêtent seuls.
-    - cron: "7 4 * * *"    # 6h07 Paris en été
-    - cron: "7 5 * * *"    # 6h07 Paris en hiver (7h07 en été -> dédup)
-    - cron: "7 18 * * *"   # 20h07 Paris en été
-    - cron: "7 19 * * *"   # 20h07 Paris en hiver (21h07 en été -> dédup)
+    # GitHub retarde souvent les crons de plusieurs heures (observé : 6h !).
+    # Stratégie : on tente toutes les 30 min pendant toute la fenêtre
+    # matin (6h-11h59 Paris) et soir (20h-23h59 Paris), été comme hiver.
+    # Le script poste UNE seule fois par créneau (dédup previous_prices.json),
+    # au premier run qui atterrit dans la fenêtre. Tous les autres s'arrêtent
+    # en 2 secondes sans rien poster.
+    - cron: "13,43 4-10 * * *"    # couvre le matin (UTC 4h-10h43)
+    - cron: "13,43 18-22 * * *"   # couvre le soir  (UTC 18h-22h43)
   workflow_dispatch:
-
+ 
 permissions:
   contents: write
-
+ 
 concurrency:
   group: crypto-brief-repo
   cancel-in-progress: false
-
+ 
 jobs:
   brief:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-
+ 
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-
+ 
       - name: Installer les dependances
         run: pip install requests
-
+ 
       - name: Envoyer le brief
         env:
           DISCORD_WEBHOOK: ${{ secrets.DISCORD_WEBHOOK }}
           FORCE: ${{ github.event_name == 'workflow_dispatch' && '1' || '' }}
         run: python crypto_brief_gh.py
-
+ 
       - name: Sauvegarder les prix pour le prochain brief
         run: |
           git config user.name "brief-bot"
@@ -50,3 +50,4 @@ jobs:
               sleep 5
             done
           fi
+ 
