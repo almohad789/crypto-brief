@@ -2,13 +2,10 @@ name: Bilans crypto Discord
 
 on:
   schedule:
-    # Objectif : vers midi, heure de Paris. Le script accepte 12h-17h59
-    # Paris et utilise bilan_state.json pour ne jamais poster deux fois.
-    # Plusieurs crons = filet de sécurité contre les retards/sauts
-    # de GitHub Actions. Minute 7 : hors des pics de charge.
-    - cron: "7 10 * * *"   # 12h07 Paris en été / 11h07 en hiver (ignoré)
-    - cron: "7 11 * * *"   # 13h07 été / 12h07 hiver
-    - cron: "7 13 * * *"   # rattrapage si les précédents ont sauté
+    # Fenêtre du script : 12h-17h59 Paris. GitHub retardant beaucoup,
+    # on tente toutes les heures sur la plage correspondante en UTC
+    # (été UTC+2 / hiver UTC+1). bilan_state.json garantit zéro doublon.
+    - cron: "13 10-16 * * *"
   workflow_dispatch:
 
 permissions:
