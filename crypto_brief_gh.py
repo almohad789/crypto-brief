@@ -191,8 +191,13 @@ def build_message(eur, var24, usd, previous):
     if prev_ts:
         try:
             prev_hour = int(prev_ts.split(" ")[1].split("h")[0])
-            moment = "soir" if prev_hour >= 12 else "matin"
-            prev_label = f"brief du {moment} {prev_ts}"
+            # 5h-11h = matin ; 12h-18h = neutre ; 19h-4h = soir
+            if 5 <= prev_hour <= 11:
+                prev_label = f"brief du matin {prev_ts}"
+            elif 12 <= prev_hour <= 18:
+                prev_label = f"brief du {prev_ts}"
+            else:
+                prev_label = f"brief du soir {prev_ts}"
         except Exception:
             prev_label = f"brief du {prev_ts}"
 
