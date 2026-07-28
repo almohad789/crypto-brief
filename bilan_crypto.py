@@ -4,16 +4,18 @@
 Bilans crypto Discord — hebdo / mensuel / 3 mois / annuel.
 Indépendant du brief quotidien 6h/20h.
 
-Poste ce qui est dû ce jour-là :
+Échéances :
   - lundi                      -> bilan semaine (7 jours)
   - 1er du mois                -> bilan mois (30 jours)
   - 1er janv/avril/juil/oct    -> bilan 3 mois (90 jours)
   - 1er janvier                -> bilan année (1 an)
 
-Fenêtre d'envoi : 12h → 17h59 (heure de Paris), large pour absorber les
-retards de GitHub Actions. Un état (bilan_state.json) mémorise la date du
-dernier envoi de chaque bilan pour éviter tout doublon si plusieurs crons
-passent le même jour.
+RATTRAPAGE : un bilan dû reste dû tant qu'il n'a pas été posté, pendant
+plusieurs jours après son échéance (3 j pour la semaine, 7 j pour les
+autres). Si GitHub retarde tous les runs du jour J, le bilan part à J+1,
+J+2... au lieu d'être perdu. Le jour de l'échéance, on attend 12h (Paris) ;
+les jours de rattrapage, on poste dès 8h. bilan_state.json mémorise la
+date du dernier envoi de chaque bilan : zéro doublon possible.
 
 FORCE=1 (lancement manuel) -> poste les 4 bilans pour tester,
 sans toucher à l'état (les bilans planifiés restent dus).
@@ -90,25 +92,50 @@ def save_state(state):
         json.dump(state, f, ensure_ascii=False, indent=2)
 
 
+def derniere_echeance(period, today):
+    """Date de la dernière échéance calendaire pour cette période."""
+    if period == "semaine":                       # dernier lundi (ou aujourd'hui)
+        return today - datetime.timedelta(days=today.weekday())
+    if period == "mois":                          # dernier 1er du mois
+        return today.replace(day=1)
+    if period == "3mois":                         # dernier 1er de trimestre
+        m = ((today.month - 1) // 3) * 3 + 1
+        return datetime.date(today.year, m, 1)
+    if period == "annee":                         # dernier 1er janvier
+        return datetime.date(today.year, 1, 1)
+    return None
+
+
+# Jours de rattrapage après l'échéance (échéance = jour 0)
+CATCHUP = {"semaine": 3, "mois": 7, "3mois": 7, "annee": 7}
+
+
 def bilans_du_jour(now, state):
-    """Bilans dus aujourd'hui et pas encore envoyés (état anti-doublon).
-    Fenêtre 12h-17h59 Paris : tolérante aux retards de GitHub Actions."""
+    """Bilans dus et pas encore envoyés, avec rattrapage.
+
+    Un bilan est dû si sa dernière échéance date de moins de CATCHUP jours
+    et qu'aucun envoi n'a eu lieu depuis cette échéance. Le jour même de
+    l'échéance on attend 12h (Paris) ; en rattrapage on poste dès 8h."""
     if os.environ.get("FORCE") == "1":
         return ["semaine", "mois", "3mois", "annee"]
-    if not (12 <= now.hour < 18):
-        return []
-    today = now.date().isoformat()
+    today = now.date()
     due = []
-    if now.weekday() == 0:                       # lundi
-        due.append("semaine")
-    if now.day == 1:
-        due.append("mois")
-        if now.month in (1, 4, 7, 10):
-            due.append("3mois")
-        if now.month == 1:
-            due.append("annee")
-    # retire ce qui a déjà été posté aujourd'hui
-    return [p for p in due if state.get(p) != today]
+    for period in ("semaine", "mois", "3mois", "annee"):
+        ech = derniere_echeance(period, today)
+        if ech is None:
+            continue
+        age = (today - ech).days
+        if age > CATCHUP[period]:
+            continue                              # échéance trop ancienne
+        last = state.get(period)                  # date ISO du dernier envoi
+        if last and last >= ech.isoformat():
+            continue                              # déjà posté pour ce cycle
+        if age == 0 and now.hour < 12:
+            continue                              # jour J : pas avant midi
+        if age > 0 and now.hour < 8:
+            continue                              # rattrapage : pas avant 8h
+        due.append(period)
+    return due
 
 
 def fetch_base():
