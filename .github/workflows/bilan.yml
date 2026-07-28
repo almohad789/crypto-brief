@@ -2,10 +2,12 @@ name: Bilans crypto Discord
 
 on:
   schedule:
-    # Fenêtre du script : 12h-17h59 Paris. GitHub retardant beaucoup,
-    # on tente toutes les heures sur la plage correspondante en UTC
-    # (été UTC+2 / hiver UTC+1). bilan_state.json garantit zéro doublon.
-    - cron: "13 10-16 * * *"
+    # Le script gère échéances, rattrapage sur plusieurs jours et
+    # anti-doublon (bilan_state.json) : ces crons ne sont que des occasions
+    # de tenter. Plage large 12h13-22h13 Paris (été) pour absorber les
+    # retards massifs de GitHub. cron-job.org à 12h00 reste le déclencheur
+    # principal recommandé.
+    - cron: "13 10-20 * * *"
   workflow_dispatch:
     inputs:
       mode:
