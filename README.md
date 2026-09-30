@@ -37,26 +37,39 @@ Deux messages par jour, sous forme d'**embed Discord** lisible sur PC comme sur 
 * 🧠 un **résumé automatique** du marché (tendance sur 24h, meilleur et pire performeur,
   évolution moyenne depuis le brief précédent)
 * 🎨 une **barre de couleur** selon la tendance : vert (haussier), rouge (baissier), jaune (partagé)
-* 🪙 une **carte par crypto** : pastille 🟢/🔴, variation **24h**, prix en **€** et en **$**
-* 🔁 une ligne **vs** : l'évolution depuis le brief précédent
-  * le brief du **matin** se compare à celui du **soir de la veille** (la nuit)
-  * le brief du **soir** se compare à celui du **matin** (la journée)
+* 📈📉 les cryptos rangées en deux groupes, **En hausse** puis **En baisse**,
+  triées de la plus forte à la plus faible variation
+* 🪙 **deux lignes par crypto** :
+  * une grande ligne : pastille 🟢/🔴, symbole, prix en **€** et variation **24h** en gras
+  * une petite ligne grise : prix en **$** et évolution **depuis le brief précédent**
+    (le brief du **matin** se compare à celui du **soir de la veille**, le brief du
+    **soir** à celui du **matin**)
 
-Sur PC les cartes s'alignent sur 3 colonnes ; sur mobile elles s'empilent, sans
-tableau qui déborde. L'heure utilise le timestamp natif Discord, affiché dans le
-fuseau de chaque membre.
+Tout est écrit dans le texte de l'embed, sans colonnes : le rendu est identique
+sur PC et sur mobile. Les nombres sont au format français (`105,33 €`, `+1,5 %`)
+avec des espaces insécables, pour qu'un prix ne soit jamais coupé en fin de ligne.
+L'heure utilise le timestamp natif Discord, affichée dans le fuseau de chaque membre.
 
 ```
 ☀️ Brief crypto du matin
-Marché partagé sur 24h (5 hausses, 3 baisses)...
+Marché partagé sur 24h (4 hausses, 4 baisses). SOL mène à +1.5%...
 
-🟢 BTC · +1.6%      🔴 ETH · -1.2%      🔴 SOL · -0.4%
-74 214 €            2 380 €             106.13 €
-84 604 $            2 714 $             120.99 $
-vs ▲ +1.0%          vs ▲ +1.0%          vs ▲ +1.0%
-...
-% = variation 24h · vs = depuis le brief du soir 29/09 20h01
+📈 En hausse
+🟢 SOL  105,33 €  +1,5 %
+   119,41 $ · depuis 06h01 : ▲ +0,2 %
+🟢 BTC  73 585 €  +0,4 %
+   83 419 $ · depuis 06h01 : ▲ +0,1 %
+
+📉 En baisse
+🔴 LTC  59,30 €  -0,9 %
+   67,21 $ · depuis 06h01 : ▲ +0,3 %
+🔴 HBAR  0,0920 €  -11,9 %
+   0,1043 $ · depuis 06h01 : ▼ -0,2 %
+
+Gros chiffre = variation sur 24h · Données CoinGecko
 ```
+
+La petite ligne grise utilise le **sous texte** Discord (lignes commençant par `-# `).
 
 **Créneaux, pas horaires fixes.** GitHub retarde souvent ses crons, parfois de
 plusieurs heures. Le workflow tente donc sa chance toutes les 30 minutes sur
@@ -80,6 +93,11 @@ Fichier : `bilan_crypto.py` · Workflow : `.github/workflows/bilan.yml`
 | 📈 3 mois  | 1er **janv / avril / juil / oct** | 90 derniers jours  |
 | 📈 Année   | le **1er janvier**                | 365 derniers jours |
 
+Même présentation que le brief : un court résumé (nombre de hausses et de baisses,
+🏆 meilleur et 🥶 pire de la période), puis les groupes **En hausse** / **En baisse**
+avec, pour chaque crypto, le prix en € et la variation de la période en gras, et le
+prix en $ en petit dessous.
+
 **Rattrapage automatique.** Un bilan dû reste dû tant qu'il n'a pas été posté :
 3 jours de rattrapage pour le bilan semaine, 7 jours pour les autres. Le jour de
 l'échéance, l'envoi attend **12h** (heure de Paris) ; les jours de rattrapage,
@@ -96,9 +114,16 @@ Fichier : `alerte_crypto.py` · Workflow : `.github/workflows/alerte.yml`
 Contrôle toutes les 30 minutes. Si la **capitalisation** d'une crypto bouge de
 **±10 %** sur 24h, une alerte part immédiatement :
 
-Elle arrive sous forme d'embed rouge (chute) ou vert (hausse) : titre
-« 🚨 Alerte market cap · SOL », variation de la cap sur 24h, puis trois cartes
-Market cap, Prix € et Prix $.
+Elle arrive sous forme d'embed rouge (chute) ou vert (hausse), au même format
+que le brief :
+
+```
+🚨 📉 Chute drastique · HBAR
+La capitalisation a bougé de -12,4 % en 24h.
+
+🔴 HBAR  cap 3,9 Md€  -12,4 %
+   0,0920 € · 0,1043 $
+```
 
 * **Seuil** : 10 % par défaut, réglable via la variable d'environnement
   `SEUIL_ALERTE` (une ligne commentée dans `alerte.yml` attend une valeur de 5
@@ -174,6 +199,12 @@ En mode `test` :
   la plage horaire là, puis ajuster les lignes `cron` du workflow (⚠️ en UTC).
 * **Changer l'heure des bilans** : fonction `bilans_du_jour()` (`bilan_crypto.py`),
   constantes `CATCHUP` pour la durée de rattrapage.
+* **Changer la présentation des messages** : tout passe par `ui_discord.py`.
+  `ligne_crypto()` construit les deux lignes d'une crypto, `groupes()` les range en
+  « En hausse » / « En baisse », `fmt_fr()` et `pct_fr()` gèrent le format français.
+  Une modification là s'applique aux trois scripts d'un coup. Si ta version de
+  Discord affiche `-#` au lieu d'une petite ligne grise, c'est dans `ligne_crypto()`
+  qu'il faut remplacer le sous texte par de l'italique.
 * **Régler la sensibilité des alertes** : `SEUIL_ALERTE`, ou les constantes
   `COOLDOWN_H` et `AMPLIF` dans `alerte_crypto.py`.
 
@@ -207,6 +238,8 @@ crypto-brief/
   et réessaient automatiquement en cas de blocage temporaire (erreur 429).
 * Les périodes des bilans sont des **fenêtres glissantes** (30 derniers jours,
   365 derniers jours), très proches mais pas exactement calendaires.
+* Le **sous texte** (`-# `) est une mise en forme récente de Discord : une très vieille
+  version de l'application peut l'afficher tel quel.
 * Le bilan 3 mois est calculé crypto par crypto via `market_chart` : c'est le seul
   appel lent du dépôt.
 
