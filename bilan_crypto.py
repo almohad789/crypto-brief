@@ -203,7 +203,8 @@ def build_message(period, eur, usd, values):
         v = values.get(cid)
         fields.append(ui.field(
             f"{ui.pastille(v)} {sym} · {ui.pct(v, fleche=False)}",
-            f"**{ui.prix(eur.get(cid), '€', fmt)}**\n{ui.prix(usd.get(cid), '$', fmt)}"))
+            f"**{ui.prix(eur.get(cid), '€', fmt)}**\n{ui.prix(usd.get(cid), '$', fmt)}\n\u200b",
+            inline=False))  # une crypto par ligne + ligne vide entre chaque
 
     return {
         "title": f"📈 {titre}",
