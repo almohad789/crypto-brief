@@ -147,7 +147,8 @@ def build_test_message(markets, sym_by_id):
         sym = sym_by_id.get(m["id"], m["id"])
         ch = m.get("market_cap_change_percentage_24h")
         fields.append(ui.field(f"{ui.pastille(ch)} {sym} · {ui.pct(ch, fleche=False)}",
-                               fmt_cap(m.get("market_cap"))))
+                               fmt_cap(m.get("market_cap")) + "\n\u200b",
+                               inline=False))  # une crypto par ligne + ligne vide entre chaque
     return {
         "title": "🧪 Test des alertes market cap",
         "description": (f"Seuil actuel : **±{SEUIL:.0f}%** sur 24h\n"
