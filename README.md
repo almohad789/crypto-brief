@@ -32,23 +32,30 @@ Données : [API publique CoinGecko](https://www.coingecko.com), aucune clé requ
 
 Fichier : `crypto_brief_gh.py` · Workflow : `.github/workflows/crypto.yml`
 
-Deux messages par jour, compacts et optimisés mobile :
+Deux messages par jour, sous forme d'**embed Discord** lisible sur PC comme sur mobile :
 
 * 🧠 un **résumé automatique** du marché (tendance sur 24h, meilleur et pire performeur,
   évolution moyenne depuis le brief précédent)
-* 📋 un tableau : variation **24h**, prix en **€** et en **$**
-* 🔁 une colonne **vs** : l'évolution depuis le brief précédent
+* 🎨 une **barre de couleur** selon la tendance : vert (haussier), rouge (baissier), jaune (partagé)
+* 🪙 une **carte par crypto** : pastille 🟢/🔴, variation **24h**, prix en **€** et en **$**
+* 🔁 une ligne **vs** : l'évolution depuis le brief précédent
   * le brief du **matin** se compare à celui du **soir de la veille** (la nuit)
   * le brief du **soir** se compare à celui du **matin** (la journée)
 
+Sur PC les cartes s'alignent sur 3 colonnes ; sur mobile elles s'empilent, sans
+tableau qui déborde. L'heure utilise le timestamp natif Discord, affiché dans le
+fuseau de chaque membre.
+
 ```
-Crypto    24h   Prix €   Prix $      vs
-───────────────────────────────────────
-BTC    ▼-1.6%   56 332   64 106  ▼-0.1%
-ETH    ▼-1.2%    1 636    1 862  ▲+0.0%
+☀️ Brief crypto du matin
+Marché partagé sur 24h (5 hausses, 3 baisses)...
+
+🟢 BTC · +1.6%      🔴 ETH · -1.2%      🔴 SOL · -0.4%
+74 214 €            2 380 €             106.13 €
+84 604 $            2 714 $             120.99 $
+vs ▲ +1.0%          vs ▲ +1.0%          vs ▲ +1.0%
 ...
-───────────────────────────────────────
-vs = depuis brief du matin 25/07 06h00
+% = variation 24h · vs = depuis le brief du soir 29/09 20h01
 ```
 
 **Créneaux, pas horaires fixes.** GitHub retarde souvent ses crons, parfois de
@@ -89,12 +96,9 @@ Fichier : `alerte_crypto.py` · Workflow : `.github/workflows/alerte.yml`
 Contrôle toutes les 30 minutes. Si la **capitalisation** d'une crypto bouge de
 **±10 %** sur 24h, une alerte part immédiatement :
 
-```
-🚨 Alerte Market Cap — SOL (25/07 14h43)
-📉 CHUTE drastique : cap ▼-12.4% sur 24h
-Market cap : 45.6 Md€
-Prix       : 128,40 € / 146,20 $
-```
+Elle arrive sous forme d'embed rouge (chute) ou vert (hausse) : titre
+« 🚨 Alerte market cap · SOL », variation de la cap sur 24h, puis trois cartes
+Market cap, Prix € et Prix $.
 
 * **Seuil** : 10 % par défaut, réglable via la variable d'environnement
   `SEUIL_ALERTE` (une ligne commentée dans `alerte.yml` attend une valeur de 5
@@ -182,6 +186,7 @@ crypto-brief/
 ├── crypto_brief_gh.py        # brief quotidien, créneaux matin et soir
 ├── bilan_crypto.py           # bilans semaine / mois / 3 mois / année
 ├── alerte_crypto.py          # alertes market cap, toutes les 30 min
+├── ui_discord.py             # mise en forme des embeds, commune aux 3 scripts
 ├── previous_prices.json      # prix + créneaux déjà postés (auto, ne pas toucher)
 ├── bilan_state.json          # date du dernier envoi de chaque bilan (auto)
 ├── alerte_state.json         # dernière alerte par crypto (auto)
