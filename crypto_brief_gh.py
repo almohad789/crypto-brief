@@ -183,31 +183,6 @@ def build_summary_line(eur, var24, prev_eur):
     return phrase + "."
 
 
-NBSP = "\u00a0"
-
-
-def fmt_fr(v):
-    """Prix au format français : 73 585 / 105,33 / 0,4453."""
-    if v is None:
-        return "n/d"
-    if v >= 1000:
-        txt = f"{v:,.0f}"
-    elif v >= 1:
-        txt = f"{v:,.2f}"
-    else:
-        txt = f"{v:.4f}"
-    return txt.replace(",", " ").replace(".", ",").replace(" ", NBSP)
-
-
-def pct_fr(v, fleche=False):
-    if v is None:
-        return "n/d"
-    txt = f"{v:+.1f}".replace(".", ",") + NBSP + "%"
-    if fleche:
-        txt = ("▲" if v >= 0 else "▼") + NBSP + txt
-    return txt
-
-
 def build_message(eur, var24, usd, previous):
     """Brief compact : hausses puis baisses, 2 lignes par crypto
     (prix € + variation 24h en gros, puis $ et écart depuis le dernier brief en petit)."""
@@ -223,29 +198,22 @@ def build_message(eur, var24, usd, previous):
     else:
         titre = "📊 Brief crypto"
 
-    def bloc(sym, cid):
+    items = []
+    for sym, cid in COINS.items():
         v = var24.get(cid)
-        l1 = f"{ui.pastille(v)} **{sym}**{NBSP}{NBSP}{fmt_fr(eur.get(cid))}{NBSP}€{NBSP}{NBSP}**{pct_fr(v)}**"
-        infos = []
+        details = []
         if usd.get(cid) is not None:
-            infos.append(f"{fmt_fr(usd.get(cid))}{NBSP}$")
+            details.append(f"{ui.fmt_fr(usd.get(cid))}{ui.NBSP}$")
         p, c = prev_eur.get(cid), eur.get(cid)
         if prev_heure and p and c:
-            infos.append(f"depuis {prev_heure} : {pct_fr((c / p - 1) * 100, fleche=True)}")
-        return l1 + ("\n-# " + " · ".join(infos) if infos else "")
-
-    tri = sorted(COINS.items(), key=lambda kv: var24.get(kv[1]) or 0, reverse=True)
-    hausses = [bloc(s, c) for s, c in tri if (var24.get(c) or 0) >= 0]
-    baisses = [bloc(s, c) for s, c in tri if (var24.get(c) or 0) < 0]
+            details.append(f"depuis {prev_heure} : {ui.pct_fr((c / p - 1) * 100, fleche=True)}")
+        items.append((v, ui.ligne_crypto(sym, v, f"{ui.fmt_fr(eur.get(cid))}{ui.NBSP}€", details)))
 
     parties = []
     resume = build_summary_line(eur, var24, prev_eur)
     if resume:
         parties.append(resume)
-    if hausses:
-        parties.append("**📈 En hausse**\n" + "\n".join(hausses))
-    if baisses:
-        parties.append("**📉 En baisse**\n" + "\n".join(baisses))
+    parties += ui.groupes(items)
 
     return {
         "title": titre,
