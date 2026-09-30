@@ -182,36 +182,32 @@ def fetch_90d():
 
 
 def build_message(period, eur, usd, values):
-    """Construit l'embed Discord d'un bilan (remplace l'ancien tableau texte)."""
+    """Bilan compact : hausses puis baisses, 2 lignes par crypto."""
     titre, col, jours, _ = PERIODS[period]
     now_dt = datetime.datetime.now(ZoneInfo("Europe/Paris"))
 
     vals = [(s, values.get(cid)) for s, cid in COINS.items() if values.get(cid) is not None]
     ups = [v for _, v in vals if v >= 0]
     downs = [v for _, v in vals if v < 0]
-    description = f"Période : **{jours} derniers jours**"
+    resume = f"Sur les **{jours} derniers jours**"
     if vals:
         best = max(vals, key=lambda x: x[1])
         worst = min(vals, key=lambda x: x[1])
-        description += (f"\n{len(ups)} hausse{'s' if len(ups) > 1 else ''}, "
-                        f"{len(downs)} baisse{'s' if len(downs) > 1 else ''}"
-                        f"\n🏆 Meilleur : **{best[0]}** `{ui.pct(best[1])}`"
-                        f"\n🥶 Pire : **{worst[0]}** `{ui.pct(worst[1])}`")
+        resume += (f" : {len(ups)} hausse{'s' if len(ups) > 1 else ''}, "
+                   f"{len(downs)} baisse{'s' if len(downs) > 1 else ''}"
+                   f"\n🏆 **{best[0]}** {ui.pct_fr(best[1])} · 🥶 **{worst[0]}** {ui.pct_fr(worst[1])}")
 
-    fields = []
+    items = []
     for sym, cid in COINS.items():
         v = values.get(cid)
-        fields.append(ui.field(
-            f"{ui.pastille(v)} {sym} · {ui.pct(v, fleche=False)}",
-            f"**{ui.prix(eur.get(cid), '€', fmt)}**\n{ui.prix(usd.get(cid), '$', fmt)}\n\u200b",
-            inline=False))  # une crypto par ligne + ligne vide entre chaque
+        details = [f"{ui.fmt_fr(usd.get(cid))}{ui.NBSP}$" if usd.get(cid) is not None else None]
+        items.append((v, ui.ligne_crypto(sym, v, f"{ui.fmt_fr(eur.get(cid))}{ui.NBSP}€", details)))
 
     return {
         "title": f"📈 {titre}",
-        "description": description,
+        "description": "\n\n".join([resume] + ui.groupes(items)),
         "color": ui.couleur_tendance(values.get(cid) for cid in COINS.values()),
-        "fields": fields,
-        "footer": {"text": f"% = variation sur {col} (fenêtre glissante) · prix actuels · {ui.SOURCE}"},
+        "footer": {"text": f"Gros chiffre = variation sur {col} · prix actuels · {ui.SOURCE}"},
         "timestamp": now_dt.isoformat(),
     }
 
