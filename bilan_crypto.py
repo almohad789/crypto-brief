@@ -32,6 +32,8 @@ from zoneinfo import ZoneInfo
 
 import requests
 
+import ui_discord as ui
+
 WEBHOOK_URL = os.environ.get("DISCORD_WEBHOOK", "")
 API = "https://api.coingecko.com/api/v3"
 STATE_FILE = "bilan_state.json"
@@ -58,7 +60,7 @@ PERIODS = {
 
 def fmt(v):
     if v is None:
-        return "—"
+        return "n/d"
     if v >= 1000:
         return f"{v:,.0f}".replace(",", " ")
     if v >= 1:
@@ -180,43 +182,41 @@ def fetch_90d():
 
 
 def build_message(period, eur, usd, values):
-    titre, col, _, _ = PERIODS[period]
-    now = datetime.datetime.now(ZoneInfo("Europe/Paris")).strftime("%d/%m/%Y")
+    """Construit l'embed Discord d'un bilan (remplace l'ancien tableau texte)."""
+    titre, col, jours, _ = PERIODS[period]
+    now_dt = datetime.datetime.now(ZoneInfo("Europe/Paris"))
 
     vals = [(s, values.get(cid)) for s, cid in COINS.items() if values.get(cid) is not None]
     ups = [v for _, v in vals if v >= 0]
     downs = [v for _, v in vals if v < 0]
-    resume = None
+    description = f"Période : **{jours} derniers jours**"
     if vals:
         best = max(vals, key=lambda x: x[1])
         worst = min(vals, key=lambda x: x[1])
-        resume = (f"{len(ups)} hausse{'s' if len(ups) > 1 else ''}, "
-                  f"{len(downs)} baisse{'s' if len(downs) > 1 else ''} sur la période. "
-                  f"Meilleur : {best[0]} ({best[1]:+.1f}%), "
-                  f"pire : {worst[0]} ({worst[1]:+.1f}%).")
+        description += (f"\n{len(ups)} hausse{'s' if len(ups) > 1 else ''}, "
+                        f"{len(downs)} baisse{'s' if len(downs) > 1 else ''}"
+                        f"\n🏆 Meilleur : **{best[0]}** `{ui.pct(best[1])}`"
+                        f"\n🥶 Pire : **{worst[0]}** `{ui.pct(worst[1])}`")
 
-    lines = [f"**📈 {titre} — {now}**"]
-    if resume:
-        lines.append(resume)
-    lines.append("```")
-    header = f"{'Crypto':<6}{col:>7} {'Prix €':>8} {'Prix $':>8}"
-    lines.append(header)
-    lines.append("─" * len(header))
+    fields = []
     for sym, cid in COINS.items():
         v = values.get(cid)
-        if v is None:
-            pct = "—"
-        else:
-            arrow = "▲" if v >= 0 else "▼"
-            pct = f"{arrow}{v:+.1f}%" if abs(v) < 100 else f"{arrow}{v:+.0f}%"
-        lines.append(f"{sym:<6}{pct:>7} {fmt(eur.get(cid)):>8} {fmt(usd.get(cid)):>8}")
-    lines.append("```")
-    return "\n".join(lines)
+        fields.append(ui.field(
+            f"{ui.pastille(v)} {sym} · {ui.pct(v, fleche=False)}",
+            f"**{ui.prix(eur.get(cid), '€', fmt)}**\n{ui.prix(usd.get(cid), '$', fmt)}"))
+
+    return {
+        "title": f"📈 {titre}",
+        "description": description,
+        "color": ui.couleur_tendance(values.get(cid) for cid in COINS.values()),
+        "fields": fields,
+        "footer": {"text": f"% = variation sur {col} (fenêtre glissante) · prix actuels · {ui.SOURCE}"},
+        "timestamp": now_dt.isoformat(),
+    }
 
 
-def post_to_discord(message):
-    resp = requests.post(WEBHOOK_URL, json={"content": message}, timeout=30)
-    resp.raise_for_status()
+def post_to_discord(embed):
+    ui.post_embeds(WEBHOOK_URL, [embed])
 
 
 def main():
