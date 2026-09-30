@@ -120,43 +120,45 @@ def doit_alerter(cid, change, state, now_ts):
     return False
 
 
+def fmt_cap_fr(v):
+    """Market cap lisible au format français : 1,23 T€, 45,6 Md€, 789 M€."""
+    return fmt_cap(v).replace(".", ",").replace(" ", ui.NBSP)
+
+
 def build_alert(sym, change, cap, prix_eur, prix_usd):
-    """Embed d'alerte (remplace l'ancien message texte)."""
+    """Alerte compacte : la variation en grand, les chiffres utiles en dessous."""
     now_dt = datetime.datetime.now(ZoneInfo("Europe/Paris"))
     hausse = change >= 0
     sens = "📈 Hausse drastique" if hausse else "📉 Chute drastique"
+    ligne = ui.ligne_crypto(
+        sym, change, f"cap {fmt_cap_fr(cap)}",
+        [f"{ui.fmt_fr(prix_eur)}{ui.NBSP}€",
+         f"{ui.fmt_fr(prix_usd)}{ui.NBSP}$" if prix_usd is not None else None])
     return {
-        "title": f"🚨 Alerte market cap · {sym}",
-        "description": f"**{sens}** : capitalisation `{ui.pct(change)}` sur 24h",
+        "title": f"🚨 {sens} · {sym}",
+        "description": f"La capitalisation a bougé de **{ui.pct_fr(change)}** en 24h.\n\n{ligne}",
         "color": ui.VERT if hausse else ui.ROUGE,
-        "fields": [
-            ui.field("Market cap", fmt_cap(cap)),
-            ui.field("Prix €", f"{fmt_prix(prix_eur)} €"),
-            ui.field("Prix $", f"{fmt_prix(prix_usd)} $"),
-        ],
-        "footer": {"text": f"Seuil : ±{SEUIL:.0f}% · {ui.SOURCE}"},
+        "footer": {"text": f"Seuil d'alerte : ±{SEUIL:.0f}% · {ui.SOURCE}"},
         "timestamp": now_dt.isoformat(),
     }
 
 
 def build_test_message(markets, sym_by_id):
-    """Embed de contrôle envoyé lors d'un lancement manuel (FORCE=1)."""
+    """Message de contrôle (FORCE=1), même présentation que le brief."""
     now_dt = datetime.datetime.now(ZoneInfo("Europe/Paris"))
-    fields = []
+    items = []
     for m in markets:
         sym = sym_by_id.get(m["id"], m["id"])
         ch = m.get("market_cap_change_percentage_24h")
-        fields.append(ui.field(f"{ui.pastille(ch)} {sym} · {ui.pct(ch, fleche=False)}",
-                               fmt_cap(m.get("market_cap")) + "\n\u200b",
-                               inline=False))  # une crypto par ligne + ligne vide entre chaque
+        items.append((ch, ui.ligne_crypto(sym, ch, f"cap {fmt_cap_fr(m.get('market_cap'))}")))
+    intro = (f"Seuil actuel : **±{SEUIL:.0f}%** sur 24h\n"
+             "Le webhook et le script fonctionnent ✔ Une vraie alerte "
+             "partira dès qu'une cap dépasse le seuil.")
     return {
         "title": "🧪 Test des alertes market cap",
-        "description": (f"Seuil actuel : **±{SEUIL:.0f}%** sur 24h\n"
-                        "Le webhook et le script fonctionnent ✔ Une vraie alerte "
-                        "partira dès qu'une cap dépasse le seuil."),
+        "description": "\n\n".join([intro] + ui.groupes(items)),
         "color": ui.BLURPLE,
-        "fields": fields,
-        "footer": {"text": f"% = variation de la market cap sur 24h · {ui.SOURCE}"},
+        "footer": {"text": f"Gros chiffre = variation de la market cap sur 24h · {ui.SOURCE}"},
         "timestamp": now_dt.isoformat(),
     }
 
