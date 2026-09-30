@@ -30,6 +30,8 @@ from zoneinfo import ZoneInfo
 
 import requests
 
+import ui_discord as ui
+
 WEBHOOK_URL = os.environ.get("DISCORD_WEBHOOK", "")
 API = "https://api.coingecko.com/api/v3"
 STATE_FILE = "alerte_state.json"
@@ -56,7 +58,7 @@ COINS = {
 def fmt_cap(v):
     """Market cap lisible : 1.23 T€, 45.6 Md€, 789 M€."""
     if v is None:
-        return "—"
+        return "n/d"
     if v >= 1e12:
         return f"{v/1e12:.2f} T€"
     if v >= 1e9:
@@ -68,7 +70,7 @@ def fmt_cap(v):
 
 def fmt_prix(v):
     if v is None:
-        return "—"
+        return "n/d"
     if v >= 1000:
         return f"{v:,.0f}".replace(",", " ")
     if v >= 1:
@@ -119,40 +121,47 @@ def doit_alerter(cid, change, state, now_ts):
 
 
 def build_alert(sym, change, cap, prix_eur, prix_usd):
-    now = datetime.datetime.now(ZoneInfo("Europe/Paris")).strftime("%d/%m %Hh%M")
-    sens = "📈 HAUSSE" if change >= 0 else "📉 CHUTE"
-    arrow = "▲" if change >= 0 else "▼"
-    return (
-        f"🚨 **Alerte Market Cap — {sym}** ({now})\n"
-        f"{sens} drastique : cap {arrow}{change:+.1f}% sur 24h\n"
-        f"```\n"
-        f"Market cap : {fmt_cap(cap)}\n"
-        f"Prix       : {fmt_prix(prix_eur)} € / {fmt_prix(prix_usd)} $\n"
-        f"```"
-    )
+    """Embed d'alerte (remplace l'ancien message texte)."""
+    now_dt = datetime.datetime.now(ZoneInfo("Europe/Paris"))
+    hausse = change >= 0
+    sens = "📈 Hausse drastique" if hausse else "📉 Chute drastique"
+    return {
+        "title": f"🚨 Alerte market cap · {sym}",
+        "description": f"**{sens}** : capitalisation `{ui.pct(change)}` sur 24h",
+        "color": ui.VERT if hausse else ui.ROUGE,
+        "fields": [
+            ui.field("Market cap", fmt_cap(cap)),
+            ui.field("Prix €", f"{fmt_prix(prix_eur)} €"),
+            ui.field("Prix $", f"{fmt_prix(prix_usd)} $"),
+        ],
+        "footer": {"text": f"Seuil : ±{SEUIL:.0f}% · {ui.SOURCE}"},
+        "timestamp": now_dt.isoformat(),
+    }
 
 
 def build_test_message(markets, sym_by_id):
-    """Récap de contrôle envoyé lors d'un lancement manuel (FORCE=1)."""
-    now = datetime.datetime.now(ZoneInfo("Europe/Paris")).strftime("%d/%m %Hh%M")
-    lines = [f"🧪 **Test alertes market cap — {now}** (seuil : ±{SEUIL:.0f}%)",
-             "```",
-             f"{'Crypto':<6}{'Cap 24h':>9}  {'Market cap':>10}",
-             "─" * 28]
+    """Embed de contrôle envoyé lors d'un lancement manuel (FORCE=1)."""
+    now_dt = datetime.datetime.now(ZoneInfo("Europe/Paris"))
+    fields = []
     for m in markets:
         sym = sym_by_id.get(m["id"], m["id"])
         ch = m.get("market_cap_change_percentage_24h")
-        pct = f"{ch:+.1f}%" if ch is not None else "—"
-        lines.append(f"{sym:<6}{pct:>9}  {fmt_cap(m.get('market_cap')):>10}")
-    lines.append("```")
-    lines.append("Le webhook et le script fonctionnent ✔ "
-                 "Une vraie alerte partira dès qu'une cap dépasse le seuil.")
-    return "\n".join(lines)
+        fields.append(ui.field(f"{ui.pastille(ch)} {sym} · {ui.pct(ch, fleche=False)}",
+                               fmt_cap(m.get("market_cap"))))
+    return {
+        "title": "🧪 Test des alertes market cap",
+        "description": (f"Seuil actuel : **±{SEUIL:.0f}%** sur 24h\n"
+                        "Le webhook et le script fonctionnent ✔ Une vraie alerte "
+                        "partira dès qu'une cap dépasse le seuil."),
+        "color": ui.BLURPLE,
+        "fields": fields,
+        "footer": {"text": f"% = variation de la market cap sur 24h · {ui.SOURCE}"},
+        "timestamp": now_dt.isoformat(),
+    }
 
 
-def post_to_discord(message):
-    resp = requests.post(WEBHOOK_URL, json={"content": message}, timeout=30)
-    resp.raise_for_status()
+def post_to_discord(embed):
+    ui.post_embeds(WEBHOOK_URL, [embed])
 
 
 def main():
