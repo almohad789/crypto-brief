@@ -59,6 +59,53 @@ def couleur_tendance(valeurs):
     return JAUNE
 
 
+NBSP = "\u00a0"
+
+
+def fmt_fr(v):
+    """Nombre au format français : 73 585 / 105,33 / 0,4453."""
+    if v is None:
+        return "n/d"
+    if v >= 1000:
+        txt = f"{v:,.0f}"
+    elif v >= 1:
+        txt = f"{v:,.2f}"
+    else:
+        txt = f"{v:.4f}"
+    return txt.replace(",", " ").replace(".", ",").replace(" ", NBSP)
+
+
+def pct_fr(v, fleche=False):
+    """Variation au format français : +1,5 % (ou ▲ +1,5 %)."""
+    if v is None:
+        return "n/d"
+    txt = (f"{v:+.1f}" if abs(v) < 100 else f"{v:+.0f}").replace(".", ",") + NBSP + "%"
+    if fleche:
+        txt = ("▲" if v >= 0 else "▼") + NBSP + txt
+    return txt
+
+
+def ligne_crypto(sym, v, principal, details=None):
+    """Présentation compacte : grande ligne (pastille, nom, valeur, variation en gras)
+    puis petite ligne grise (sous texte Discord) avec les détails."""
+    l1 = f"{pastille(v)} **{sym}**{NBSP}{NBSP}{principal}{NBSP}{NBSP}**{pct_fr(v)}**"
+    details = [d for d in (details or []) if d]
+    return l1 + ("\n-# " + " · ".join(details) if details else "")
+
+
+def groupes(items):
+    """items = [(variation, texte)] -> blocs « En hausse » / « En baisse », triés."""
+    tri = sorted(items, key=lambda x: x[0] if x[0] is not None else 0, reverse=True)
+    hausses = [t for v, t in tri if (v or 0) >= 0]
+    baisses = [t for v, t in tri if (v or 0) < 0]
+    blocs = []
+    if hausses:
+        blocs.append("**📈 En hausse**\n" + "\n".join(hausses))
+    if baisses:
+        blocs.append("**📉 En baisse**\n" + "\n".join(baisses))
+    return blocs
+
+
 def field(nom, valeur, inline=True):
     return {"name": nom[:256], "value": (valeur or "\u200b")[:1024], "inline": inline}
 
