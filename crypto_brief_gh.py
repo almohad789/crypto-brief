@@ -183,26 +183,38 @@ def build_summary_line(eur, var24, prev_eur):
     return phrase + "."
 
 
+NBSP = "\u00a0"
+
+
+def fmt_fr(v):
+    """Prix au format français : 73 585 / 105,33 / 0,4453."""
+    if v is None:
+        return "n/d"
+    if v >= 1000:
+        txt = f"{v:,.0f}"
+    elif v >= 1:
+        txt = f"{v:,.2f}"
+    else:
+        txt = f"{v:.4f}"
+    return txt.replace(",", " ").replace(".", ",").replace(" ", NBSP)
+
+
+def pct_fr(v, fleche=False):
+    if v is None:
+        return "n/d"
+    txt = f"{v:+.1f}".replace(".", ",") + NBSP + "%"
+    if fleche:
+        txt = ("▲" if v >= 0 else "▼") + NBSP + txt
+    return txt
+
+
 def build_message(eur, var24, usd, previous):
-    """Construit l'embed Discord du brief (remplace l'ancien tableau texte)."""
+    """Brief compact : hausses puis baisses, 2 lignes par crypto
+    (prix € + variation 24h en gros, puis $ et écart depuis le dernier brief en petit)."""
     now_dt = datetime.datetime.now(ZoneInfo("Europe/Paris"))
     prev_eur = previous.get("eur", {})
-    prev_ts = previous.get("timestamp")
-
-    # Libellé du brief précédent : soir ou matin selon son heure
-    prev_label = None
-    if prev_ts:
-        try:
-            prev_hour = int(prev_ts.split(" ")[1].split("h")[0])
-            # 5h-11h = matin ; 12h-18h = neutre ; 19h-4h = soir
-            if 5 <= prev_hour <= 11:
-                prev_label = f"brief du matin {prev_ts}"
-            elif 12 <= prev_hour <= 18:
-                prev_label = f"brief du {prev_ts}"
-            else:
-                prev_label = f"brief du soir {prev_ts}"
-        except Exception:
-            prev_label = f"brief du {prev_ts}"
+    prev_ts = previous.get("timestamp")          # ex. "30/09 06h01"
+    prev_heure = prev_ts.split(" ")[-1] if prev_ts else None
 
     if now_dt.hour < 12:
         titre = "☀️ Brief crypto du matin"
@@ -211,36 +223,37 @@ def build_message(eur, var24, usd, previous):
     else:
         titre = "📊 Brief crypto"
 
-    fields = []
-    for sym, cid in COINS.items():
+    def bloc(sym, cid):
         v = var24.get(cid)
-        lignes = [f"**{ui.prix(eur.get(cid), '€', fmt)}**",
-                  ui.prix(usd.get(cid), "$", fmt)]
-        if prev_ts:
-            p, c = prev_eur.get(cid), eur.get(cid)
-            delta = (c / p - 1) * 100 if (p and c) else None
-            lignes.append(f"vs `{ui.pct(delta)}`")
-        # inline=False : une crypto par ligne (plus de colonnes)
-        # "\u200b" final : ligne vide invisible pour aérer entre deux cryptos
-        fields.append(ui.field(f"{ui.pastille(v)} {sym} · {ui.pct(v, fleche=False)}",
-                               "\n".join(lignes) + "\n\u200b", inline=False))
+        l1 = f"{ui.pastille(v)} **{sym}**{NBSP}{NBSP}{fmt_fr(eur.get(cid))}{NBSP}€{NBSP}{NBSP}**{pct_fr(v)}**"
+        infos = []
+        if usd.get(cid) is not None:
+            infos.append(f"{fmt_fr(usd.get(cid))}{NBSP}$")
+        p, c = prev_eur.get(cid), eur.get(cid)
+        if prev_heure and p and c:
+            infos.append(f"depuis {prev_heure} : {pct_fr((c / p - 1) * 100, fleche=True)}")
+        return l1 + ("\n-# " + " · ".join(infos) if infos else "")
 
-    footer = "% = variation 24h"
-    if prev_label:
-        footer += f" · vs = depuis le {prev_label}"
-    footer += f" · {ui.SOURCE}"
+    tri = sorted(COINS.items(), key=lambda kv: var24.get(kv[1]) or 0, reverse=True)
+    hausses = [bloc(s, c) for s, c in tri if (var24.get(c) or 0) >= 0]
+    baisses = [bloc(s, c) for s, c in tri if (var24.get(c) or 0) < 0]
 
-    embed = {
-        "title": titre,
-        "color": ui.couleur_tendance(var24.get(cid) for cid in COINS.values()),
-        "fields": fields,
-        "footer": {"text": footer},
-        "timestamp": now_dt.isoformat(),
-    }
+    parties = []
     resume = build_summary_line(eur, var24, prev_eur)
     if resume:
-        embed["description"] = resume
-    return embed
+        parties.append(resume)
+    if hausses:
+        parties.append("**📈 En hausse**\n" + "\n".join(hausses))
+    if baisses:
+        parties.append("**📉 En baisse**\n" + "\n".join(baisses))
+
+    return {
+        "title": titre,
+        "color": ui.couleur_tendance(var24.get(cid) for cid in COINS.values()),
+        "description": "\n\n".join(parties),
+        "footer": {"text": f"Gros chiffre = variation sur 24h · {ui.SOURCE}"},
+        "timestamp": now_dt.isoformat(),
+    }
 
 
 def post_to_discord(embed):
