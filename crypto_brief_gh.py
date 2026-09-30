@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-Brief crypto Discord — 6h et 20h (heure de Paris), version texte simple.
+Brief crypto Discord : 6h et 20h (heure de Paris), affiché en embed.
 Pour chaque crypto : nom, variation 24h (%), prix en € et $, et évolution
 par rapport au brief précédent (sauvegardé dans previous_prices.json).
 
@@ -21,6 +21,8 @@ import datetime
 from zoneinfo import ZoneInfo
 
 import requests
+
+import ui_discord as ui
 
 # ─────────────────────────────────────────────────────────────
 WEBHOOK_URL = os.environ.get("DISCORD_WEBHOOK", "")
@@ -59,7 +61,7 @@ def deja_poste(previous, slot, now):
 
 def fmt(v):
     if v is None:
-        return "—"
+        return "n/d"
     if v >= 1000:
         return f"{v:,.0f}".replace(",", " ")
     if v >= 1:
@@ -182,7 +184,8 @@ def build_summary_line(eur, var24, prev_eur):
 
 
 def build_message(eur, var24, usd, previous):
-    now = datetime.datetime.now(ZoneInfo("Europe/Paris")).strftime("%d/%m %Hh%M")
+    """Construit l'embed Discord du brief (remplace l'ancien tableau texte)."""
+    now_dt = datetime.datetime.now(ZoneInfo("Europe/Paris"))
     prev_eur = previous.get("eur", {})
     prev_ts = previous.get("timestamp")
 
@@ -201,43 +204,45 @@ def build_message(eur, var24, usd, previous):
         except Exception:
             prev_label = f"brief du {prev_ts}"
 
-    lines = [f"**📊 Brief crypto — {now}**"]
-    resume = build_summary_line(eur, var24, prev_eur)
-    if resume:
-        lines.append(resume)
-    lines.append("```")
-    header = f"{'Crypto':<6}{'24h':>7} {'Prix €':>8} {'Prix $':>8}"
-    if prev_ts:
-        header += f" {'vs':>7}"
-    lines.append(header)
-    lines.append("─" * len(header))
+    if now_dt.hour < 12:
+        titre = "☀️ Brief crypto du matin"
+    elif now_dt.hour >= 20:
+        titre = "🌙 Brief crypto du soir"
+    else:
+        titre = "📊 Brief crypto"
 
+    fields = []
     for sym, cid in COINS.items():
         v = var24.get(cid)
-        arrow = "▲" if (v or 0) >= 0 else "▼"
-        pct = f"{arrow}{v:+.1f}%" if v is not None else "—"
-        row = f"{sym:<6}{pct:>7} {fmt(eur.get(cid)):>8} {fmt(usd.get(cid)):>8}"
+        lignes = [f"**{ui.prix(eur.get(cid), '€', fmt)}**",
+                  ui.prix(usd.get(cid), "$", fmt)]
         if prev_ts:
-            p = prev_eur.get(cid)
-            c = eur.get(cid)
-            if p and c:
-                delta = (c / p - 1) * 100
-                da = "▲" if delta >= 0 else "▼"
-                row += f" {da}{delta:+.1f}%".rjust(8)
-            else:
-                row += f"{'—':>8}"
-        lines.append(row)
+            p, c = prev_eur.get(cid), eur.get(cid)
+            delta = (c / p - 1) * 100 if (p and c) else None
+            lignes.append(f"vs `{ui.pct(delta)}`")
+        fields.append(ui.field(f"{ui.pastille(v)} {sym} · {ui.pct(v, fleche=False)}",
+                               "\n".join(lignes)))
 
+    footer = "% = variation 24h"
     if prev_label:
-        lines.append("─" * len(header))
-        lines.append(f"vs = depuis {prev_label}")
-    lines.append("```")
-    return "\n".join(lines)
+        footer += f" · vs = depuis le {prev_label}"
+    footer += f" · {ui.SOURCE}"
+
+    embed = {
+        "title": titre,
+        "color": ui.couleur_tendance(var24.get(cid) for cid in COINS.values()),
+        "fields": fields,
+        "footer": {"text": footer},
+        "timestamp": now_dt.isoformat(),
+    }
+    resume = build_summary_line(eur, var24, prev_eur)
+    if resume:
+        embed["description"] = resume
+    return embed
 
 
-def post_to_discord(message):
-    resp = requests.post(WEBHOOK_URL, json={"content": message}, timeout=30)
-    resp.raise_for_status()
+def post_to_discord(embed):
+    ui.post_embeds(WEBHOOK_URL, [embed])
     print("Posté sur Discord ✔")
 
 
