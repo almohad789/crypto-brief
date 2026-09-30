@@ -220,8 +220,10 @@ def build_message(eur, var24, usd, previous):
             p, c = prev_eur.get(cid), eur.get(cid)
             delta = (c / p - 1) * 100 if (p and c) else None
             lignes.append(f"vs `{ui.pct(delta)}`")
+        # inline=False : une crypto par ligne (plus de colonnes)
+        # "\u200b" final : ligne vide invisible pour aérer entre deux cryptos
         fields.append(ui.field(f"{ui.pastille(v)} {sym} · {ui.pct(v, fleche=False)}",
-                               "\n".join(lignes)))
+                               "\n".join(lignes) + "\n\u200b", inline=False))
 
     footer = "% = variation 24h"
     if prev_label:
