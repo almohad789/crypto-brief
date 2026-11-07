@@ -1,17 +1,17 @@
 {
-  "timestamp": "06/11 20h01",
+  "timestamp": "07/11 06h00",
   "posted": {
     "soir": "2026-11-06",
-    "matin": "2026-11-06"
+    "matin": "2026-11-07"
   },
   "eur": {
-    "bitcoin": 67964,
-    "ethereum": 2000.48,
-    "ripple": 1.063,
-    "solana": 80.92,
-    "litecoin": 47.35,
-    "hedera-hashgraph": 0.061364,
-    "ondo-finance": 0.33664,
-    "xdce-crowd-sale": 0.02805087
+    "bitcoin": 68033,
+    "ethereum": 2011.34,
+    "ripple": 1.036,
+    "solana": 80.67,
+    "litecoin": 46.95,
+    "hedera-hashgraph": 0.060258,
+    "ondo-finance": 0.329753,
+    "xdce-crowd-sale": 0.02786988
   }
 }
